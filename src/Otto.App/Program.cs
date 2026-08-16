@@ -24,6 +24,10 @@ await EnsureModelsAsync(modelsDir, modelPath, vadPath);
 var settingsStore = new SettingsStore(SettingsStore.DefaultPath);
 var settings = settingsStore.Load();
 
+// Writing the defaults straight away means the first-run window shows once and
+// not on every launch.
+if (settings.IsFirstRun) settingsStore.Save(settings);
+
 var services = new ServiceCollection();
 
 services.AddLogging(builder => builder

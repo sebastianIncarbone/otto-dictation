@@ -1,5 +1,6 @@
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Otto.Core;
 
 namespace Otto.App;
@@ -21,6 +22,9 @@ public sealed record Settings
     public bool StartWithWindows { get; init; }
     public bool ShowCharacter { get; init; } = true;
 
+    /// <summary>True when no settings file existed yet, so the window can introduce itself.</summary>
+    [JsonIgnore] public bool IsFirstRun { get; init; }
+
     public HotkeyBinding ToBinding() => new(Modifiers, VirtualKey);
 }
 
@@ -41,7 +45,7 @@ public sealed class SettingsStore
 
     public Settings Load()
     {
-        if (!File.Exists(path)) return new Settings();
+        if (!File.Exists(path)) return new Settings { IsFirstRun = true };
 
         try
         {

@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Otto.App.ViewModels;
 using Otto.App.Views;
 using Otto.Core;
@@ -34,6 +35,13 @@ public partial class App : Application
 
             SetUpTray(desktop);
             StartPipeline();
+
+            // Launching something and having nothing happen on screen reads as
+            // "it didn't work", even when it did. On a first run — or when the
+            // tray icon could not be created — the window is the only proof Otto
+            // is alive, so it opens.
+            if (services.GetRequiredService<Settings>().IsFirstRun || tray is null)
+                ShowWindow();
         }
 
         base.OnFrameworkInitializationCompleted();
@@ -43,7 +51,23 @@ public partial class App : Application
     {
         var pipeline = services.GetRequiredService<DictationPipeline>();
 
-        tray = new TrayIcon
+        try
+        {
+            tray = BuildTray(desktop, pipeline);
+        }
+        catch (Exception ex)
+        {
+            // Some shells refuse a tray icon. Otto still works — the hotkey is
+            // registered either way — so this must not be fatal, but the user
+            // needs the window instead of an invisible process.
+            services.GetRequiredService<ILogger<App>>()
+                .LogWarning(ex, "No se pudo crear el ícono de bandeja; se abre la ventana en su lugar");
+        }
+    }
+
+    private TrayIcon BuildTray(IClassicDesktopStyleApplicationLifetime desktop, DictationPipeline pipeline)
+    {
+        var tray = new TrayIcon
         {
             Icon = TrayIcons.For(pipeline.State),
             ToolTipText = "Otto",
@@ -65,6 +89,8 @@ public partial class App : Application
         });
 
         TrayIcon.SetIcons(this, [tray]);
+
+        return tray;
     }
 
     private NativeMenu BuildMenu(IClassicDesktopStyleApplicationLifetime desktop)

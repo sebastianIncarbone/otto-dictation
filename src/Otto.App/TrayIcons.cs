@@ -46,7 +46,11 @@ public static class TrayIcons
 
         using var buffer = bitmap.Lock();
 
-        var pixels = new byte[Size * Size * 4];
+        // Rows can be padded, so the stride comes from the framebuffer rather than
+        // being assumed to be width * 4.
+        var stride = buffer.RowBytes;
+        var pixels = new byte[stride * Size];
+
         const double centre = (Size - 1) / 2.0;
         const double radius = Size / 2.0 - 2;
 
@@ -59,15 +63,14 @@ public static class TrayIcons
                 // One pixel of feathering at the edge; without it the circle reads
                 // as a jagged blob at 16 px in the notification area.
                 var coverage = Math.Clamp(radius - distance + 0.5, 0, 1);
-                var alpha = (byte)(coverage * 255);
 
-                var offset = (y * Size + x) * 4;
+                var offset = y * stride + x * 4;
 
                 // Premultiplied alpha, so the channels scale with coverage.
                 pixels[offset + 0] = (byte)(b * coverage);
                 pixels[offset + 1] = (byte)(g * coverage);
                 pixels[offset + 2] = (byte)(r * coverage);
-                pixels[offset + 3] = alpha;
+                pixels[offset + 3] = (byte)(coverage * 255);
             }
         }
 
