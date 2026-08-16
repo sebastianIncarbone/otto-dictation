@@ -4,6 +4,7 @@
     <Project Path="src/Otto.Core/Otto.Core.csproj" />
     <Project Path="src/Otto.Platform.Windows/Otto.Platform.Windows.csproj" />
     <Project Path="src/Otto.Speech/Otto.Speech.csproj" />
+    <Project Path="src/Otto.Storage/Otto.Storage.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Otto.Core.Tests/Otto.Core.Tests.csproj" />

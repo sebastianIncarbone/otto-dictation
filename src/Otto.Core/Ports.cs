@@ -83,3 +83,32 @@ public interface IPromptProvider
 {
     string? PromptFor(DictationContext context);
 }
+
+/// <summary>
+/// A dictation, kept. Dictating and saving are the same action — there is no
+/// separate "save this" step — so every dictation becomes one of these.
+/// </summary>
+public sealed record Note(
+    long Id,
+    string Title,
+    string Text,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
+    DictationContext Context,
+    TimeSpan AudioDuration);
+
+public interface INoteRepository
+{
+    Task<Note> AddAsync(string text, DictationContext context, TimeSpan audioDuration, CancellationToken cancellationToken = default);
+
+    Task<Note?> GetAsync(long id, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<Note>> RecentAsync(int limit = 50, CancellationToken cancellationToken = default);
+
+    /// <summary>Full-text search over title and body.</summary>
+    Task<IReadOnlyList<Note>> SearchAsync(string query, int limit = 50, CancellationToken cancellationToken = default);
+
+    Task UpdateAsync(long id, string title, string text, CancellationToken cancellationToken = default);
+
+    Task DeleteAsync(long id, CancellationToken cancellationToken = default);
+}

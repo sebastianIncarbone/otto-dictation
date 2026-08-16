@@ -18,6 +18,7 @@ public sealed class DictationPipeline : IDisposable
     private readonly ITranscriber transcriber;
     private readonly ITextInjector injector;
     private readonly IForegroundWindow foreground;
+    private readonly INoteRepository notes;
     private readonly ILogger<DictationPipeline> log;
 
     private DictationContext pending = DictationContext.Unknown;
@@ -29,6 +30,7 @@ public sealed class DictationPipeline : IDisposable
         ITranscriber transcriber,
         ITextInjector injector,
         IForegroundWindow foreground,
+        INoteRepository notes,
         ILogger<DictationPipeline> log)
     {
         this.hotkey = hotkey;
@@ -36,6 +38,7 @@ public sealed class DictationPipeline : IDisposable
         this.transcriber = transcriber;
         this.injector = injector;
         this.foreground = foreground;
+        this.notes = notes;
         this.log = log;
     }
 
@@ -43,8 +46,11 @@ public sealed class DictationPipeline : IDisposable
 
     public event Action<DictationState>? StateChanged;
 
-    /// <summary>Fired after each dictation so the history can persist it (milestone 2).</summary>
+    /// <summary>Fired as soon as the text is in the user's window.</summary>
     public event Action<string, DictationContext>? Dictated;
+
+    /// <summary>Fired once the note is on disk, which happens after injection.</summary>
+    public event Action<Note>? Saved;
 
     public async Task StartAsync(HotkeyBinding binding, CancellationToken cancellationToken = default)
     {
@@ -113,6 +119,11 @@ public sealed class DictationPipeline : IDisposable
                 transcribed.TotalSeconds, watch.Elapsed.TotalSeconds, total.Elapsed.TotalSeconds);
 
             Dictated?.Invoke(text, context);
+
+            // After injection, never before: the user has their text already, and a
+            // slow or failed disk write must not add a millisecond to the latency
+            // they actually feel.
+            _ = SaveAsync(text, context, audio.Duration);
         }
         catch (Exception ex)
         {
@@ -125,6 +136,25 @@ public sealed class DictationPipeline : IDisposable
         {
             Interlocked.Exchange(ref busy, 0);
             Transition(DictationState.Idle);
+        }
+    }
+
+    /// <summary>
+    /// Dictating and keeping are the same action, so there is no "save" step for
+    /// the user — but the save still cannot fail loudly. If the disk is full or the
+    /// database is locked, the dictation already worked; losing the history entry
+    /// is worth a log line, not an interruption.
+    /// </summary>
+    private async Task SaveAsync(string text, DictationContext context, TimeSpan duration)
+    {
+        try
+        {
+            var note = await notes.AddAsync(text, context, duration);
+            Saved?.Invoke(note);
+        }
+        catch (Exception ex)
+        {
+            log.LogError(ex, "No se pudo guardar la nota; el dictado igual se escribió");
         }
     }
 
