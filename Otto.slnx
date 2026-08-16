@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/tools/">
+    <Project Path="tools/Otto.Bench/Otto.Bench.csproj" />
+  </Folder>
+</Solution>
