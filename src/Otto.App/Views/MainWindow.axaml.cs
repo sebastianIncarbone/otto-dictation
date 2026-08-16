@@ -6,7 +6,7 @@ namespace Otto.App.Views;
 
 public partial class MainWindow : Window
 {
-    public MainWindow() => AvaloniaXamlLoader.Load(this);
+    public MainWindow() => InitializeComponent();
 
     protected override void OnDataContextChanged(EventArgs e)
     {

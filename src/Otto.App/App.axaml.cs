@@ -15,6 +15,7 @@ public partial class App : Application
     private IServiceProvider services = null!;
     private TrayIcon? tray;
     private MainWindow? window;
+    private CharacterWindow? character;
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
@@ -34,6 +35,7 @@ public partial class App : Application
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
             SetUpTray(desktop);
+            SetUpCharacter();
             StartPipeline();
 
             // Launching something and having nothing happen on screen reads as
@@ -127,6 +129,24 @@ public partial class App : Application
 
         window.Show();
         window.Activate();
+    }
+
+    private void SetUpCharacter()
+    {
+        if (!services.GetRequiredService<Settings>().ShowCharacter) return;
+
+        try
+        {
+            character = new CharacterWindow(services.GetRequiredService<IOverlayStyler>());
+            character.Follow(services.GetRequiredService<DictationPipeline>());
+            character.Show();
+        }
+        catch (Exception ex)
+        {
+            // Personality is not a feature anyone should lose dictation over.
+            services.GetRequiredService<ILogger<App>>()
+                .LogWarning(ex, "No se pudo mostrar el personaje; Otto sigue funcionando igual");
+        }
     }
 
     private void StartPipeline()

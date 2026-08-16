@@ -85,6 +85,20 @@ public interface IPromptProvider
 }
 
 /// <summary>
+/// Turns a window into an overlay: always on top, invisible to Alt+Tab and the
+/// taskbar, and transparent to clicks.
+///
+/// The last one is not decoration. The character floats over whatever the user is
+/// working on, so every click has to reach the application underneath — and the
+/// window must never take focus, because stealing it just before the text is
+/// injected would send the dictation into Otto instead of into their document.
+/// </summary>
+public interface IOverlayStyler
+{
+    void MakeClickThrough(IntPtr windowHandle);
+}
+
+/// <summary>
 /// A dictation, kept. Dictating and saving are the same action — there is no
 /// separate "save this" step — so every dictation becomes one of these.
 /// </summary>

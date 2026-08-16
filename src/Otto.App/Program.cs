@@ -49,6 +49,7 @@ services.AddSingleton<ITranscriber, WhisperTranscriber>();
 services.AddSingleton<IHotkeyService, PollingHotkeyService>();
 services.AddSingleton<ITextInjector, ClipboardTextInjector>();
 services.AddSingleton<IForegroundWindow, ForegroundWindowInspector>();
+services.AddSingleton<IOverlayStyler, OverlayStyler>();
 services.AddSingleton<INoteRepository>(sp =>
     new SqliteNoteRepository(databasePath, sp.GetRequiredService<ILogger<SqliteNoteRepository>>()));
 services.AddSingleton<DictationPipeline>();

@@ -140,4 +140,20 @@ internal static partial class Native
 
     [LibraryImport("user32.dll", SetLastError = true)]
     internal static partial uint SendInput(uint count, [In] INPUT[] inputs, int size);
+
+    // ---- Estilos de ventana superpuesta ----
+
+    internal const int GWL_EXSTYLE = -20;
+    internal const long WS_EX_TRANSPARENT = 0x00000020;
+    internal const long WS_EX_TOOLWINDOW = 0x00000080;
+    internal const long WS_EX_LAYERED = 0x00080000;
+    internal const long WS_EX_NOACTIVATE = 0x08000000;
+
+    // GetWindowLongPtrW / SetWindowLongPtrW only exist under those names on 64-bit;
+    // .NET maps them correctly for the current architecture.
+    [LibraryImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
+    internal static partial IntPtr GetWindowLongPtr(IntPtr hWnd, int index);
+
+    [LibraryImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
+    internal static partial IntPtr SetWindowLongPtr(IntPtr hWnd, int index, IntPtr value);
 }

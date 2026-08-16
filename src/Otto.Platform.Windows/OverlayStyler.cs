@@ -1,0 +1,37 @@
+using Otto.Core;
+
+namespace Otto.Platform.Windows;
+
+/// <summary>
+/// Applies the extended window styles that turn an ordinary window into a
+/// non-intrusive overlay.
+///
+/// Each flag is load-bearing:
+/// <list type="bullet">
+/// <item><c>WS_EX_LAYERED</c> — required before a window can be transparent at all.</item>
+/// <item><c>WS_EX_TRANSPARENT</c> — clicks pass through to whatever is underneath,
+/// so the character never blocks the work it floats over.</item>
+/// <item><c>WS_EX_TOOLWINDOW</c> — keeps it out of Alt+Tab and the taskbar. A
+/// decorative sprite should not be something the user cycles through.</item>
+/// <item><c>WS_EX_NOACTIVATE</c> — the important one. Without it the overlay can
+/// take focus, and if it does that a moment before the transcription is pasted,
+/// the text lands in Otto instead of in the user's document.</item>
+/// </list>
+/// </summary>
+public sealed class OverlayStyler : IOverlayStyler
+{
+    public void MakeClickThrough(IntPtr windowHandle)
+    {
+        if (windowHandle == IntPtr.Zero) return;
+
+        var current = Native.GetWindowLongPtr(windowHandle, Native.GWL_EXSTYLE).ToInt64();
+
+        var updated = current
+                      | Native.WS_EX_LAYERED
+                      | Native.WS_EX_TRANSPARENT
+                      | Native.WS_EX_TOOLWINDOW
+                      | Native.WS_EX_NOACTIVATE;
+
+        Native.SetWindowLongPtr(windowHandle, Native.GWL_EXSTYLE, new IntPtr(updated));
+    }
+}
