@@ -1,0 +1,112 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Otto.App.ViewModels"
+        x:Class="Otto.App.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Title="Otto"
+        Width="560" Height="700"
+        MinWidth="420" MinHeight="420"
+        WindowStartupLocation="CenterScreen">
+
+  <Window.Styles>
+    <Style Selector="TextBlock.eyebrow">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="LetterSpacing" Value="1" />
+      <Setter Property="Opacity" Value="0.6" />
+    </Style>
+    <Style Selector="Border.card">
+      <Setter Property="Background" Value="{DynamicResource ThemeBackgroundBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorderMidBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="14" />
+    </Style>
+  </Window.Styles>
+
+  <DockPanel LastChildFill="True">
+
+    <!-- Encabezado: estado siempre visible, porque es lo primero que se pregunta
+         cualquiera que abre una app que corre en segundo plano. -->
+    <Border DockPanel.Dock="Top" Padding="18,16,18,12"
+            BorderBrush="{DynamicResource ThemeBorderMidBrush}" BorderThickness="0,0,0,1">
+      <Grid ColumnDefinitions="*,Auto">
+        <StackPanel Spacing="2">
+          <TextBlock Text="Otto" FontSize="20" FontWeight="SemiBold" />
+          <TextBlock Text="{Binding StatusText}" FontSize="12" Opacity="0.7" />
+        </StackPanel>
+
+        <Button Grid.Column="1" Content="Configuración" VerticalAlignment="Center"
+                Command="{Binding ToggleSettingsCommand}" />
+      </Grid>
+    </Border>
+
+    <!-- Configuración: se despliega sobre la lista en vez de abrir otra ventana.
+         Es una app chica; una ventana más sería una ventana más que administrar. -->
+    <Border DockPanel.Dock="Top" Classes="card" Margin="18,14,18,0"
+            IsVisible="{Binding IsSettingsOpen}">
+      <StackPanel Spacing="12">
+        <TextBlock Classes="eyebrow" Text="CONFIGURACIÓN" />
+
+        <StackPanel Spacing="4">
+          <TextBlock Text="Atajo" FontSize="12" Opacity="0.7" />
+          <TextBox Text="{Binding HotkeyLabel}" />
+        </StackPanel>
+
+        <StackPanel Spacing="4">
+          <TextBlock Text="Idioma" FontSize="12" Opacity="0.7" />
+          <TextBox Text="{Binding Language}" />
+        </StackPanel>
+
+        <CheckBox Content="Arrancar con Windows" IsChecked="{Binding StartWithWindows}" />
+        <CheckBox Content="Mostrar el personaje en pantalla" IsChecked="{Binding ShowCharacter}" />
+
+        <Button Content="Guardar" HorizontalAlignment="Right"
+                Command="{Binding SaveSettingsCommand}" />
+      </StackPanel>
+    </Border>
+
+    <!-- Búsqueda -->
+    <TextBox DockPanel.Dock="Top" Margin="18,14,18,10"
+             Watermark="Buscar en tus notas…" Text="{Binding Search}" />
+
+    <!-- Vacío -->
+    <TextBlock DockPanel.Dock="Top" Margin="18,40,18,0"
+               Text="{Binding EmptyMessage}" TextWrapping="Wrap" TextAlignment="Center"
+               Opacity="0.55" IsVisible="{Binding IsEmpty}" />
+
+    <!-- Notas -->
+    <ScrollViewer Padding="18,0,18,18">
+      <ItemsControl ItemsSource="{Binding Notes}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:NoteViewModel">
+            <Border Classes="card" Margin="0,0,0,10">
+              <StackPanel Spacing="8">
+
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBox Text="{Binding Title}" Watermark="{Binding Heading}"
+                           BorderThickness="0" Padding="0" FontWeight="SemiBold" />
+                  <TextBlock Grid.Column="1" Text="{Binding Subtitle}"
+                             FontSize="11" Opacity="0.55" VerticalAlignment="Center" />
+                </Grid>
+
+                <TextBox Text="{Binding Text}" AcceptsReturn="True" TextWrapping="Wrap"
+                         BorderThickness="0" Padding="0" MaxHeight="220" />
+
+                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                  <!-- Guardar solo aparece si hay algo que guardar: un botón que no
+                       hace nada la mayor parte del tiempo es ruido. -->
+                  <Button Content="Guardar" Command="{Binding SaveCommand}"
+                          IsVisible="{Binding IsDirty}" />
+                  <Button Content="{Binding CopyLabel}" Command="{Binding CopyCommand}" />
+                  <Button Content="Borrar" Command="{Binding DeleteCommand}" />
+                </StackPanel>
+
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </ScrollViewer>
+
+  </DockPanel>
+</Window>
