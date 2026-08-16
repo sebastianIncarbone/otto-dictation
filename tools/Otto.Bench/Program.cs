@@ -32,6 +32,10 @@ try
             await RunReviewAsync();
             break;
 
+        case "prompts":
+            await RunPromptsAsync();
+            break;
+
         case "bench":
             await RunBenchAsync();
             break;
@@ -76,6 +80,38 @@ async Task RunBenchAsync()
     }
 
     await File.WriteAllTextAsync(output, Report.Render(runtime, runtimeInfo, useVad, results, clipsDir));
+
+    Console.WriteLine($"Reporte escrito en {Path.GetFullPath(output)}");
+}
+
+/// <summary>
+/// Milestone 0.5: run the same clips under each candidate prompt so the effect of
+/// the prompt — on accuracy and on latency — is isolated and measurable.
+/// </summary>
+async Task RunPromptsAsync()
+{
+    var runtime = Flag("--runtime") ?? "vulkan";
+    var model = Models.Resolve(Flag("--models") ?? "large-v3-turbo").First();
+    var language = Flag("--lang") ?? "es";
+    var output = Flag("--out") ?? "resultados-prompts.md";
+
+    var runtimeInfo = Benchmark.ConfigureRuntime(runtime);
+
+    Console.WriteLine($"Modelo  : {model.Label}");
+    Console.WriteLine($"Runtime : {runtimeInfo}");
+    Console.WriteLine();
+
+    using var benchmark = new Benchmark(clipsDir, modelsDir, useVad: true);
+    var runs = new List<PromptRun>();
+
+    foreach (var variant in Prompts.All)
+    {
+        Console.WriteLine($"  {variant.Label}");
+        runs.Add(new PromptRun(variant, await benchmark.RunAsync(model, language, variant.Text)));
+        Console.WriteLine();
+    }
+
+    await File.WriteAllTextAsync(output, PromptReport.Render(model.Label, runtime, runs, clipsDir));
 
     Console.WriteLine($"Reporte escrito en {Path.GetFullPath(output)}");
 }
@@ -143,6 +179,7 @@ void Usage()
           record     Graba los clips de prueba (una sola vez, con tu voz)
           review     Compara guion vs. transcripción y deja corregir el guion
           bench      Corre todos los modelos contra los clips grabados
+          prompts    Mide el efecto del initial_prompt (hito 0.5)
 
         OPCIONES
 

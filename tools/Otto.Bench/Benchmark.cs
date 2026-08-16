@@ -17,6 +17,9 @@ public sealed record ClipResult(
 
     public double Wer => Accuracy.WordErrorRate(Clip.Reference, Text);
 
+    /// <summary>Accent-sensitive, so voseo shows up. See <see cref="Accuracy"/>.</summary>
+    public double WerStrict => Accuracy.WordErrorRateStrict(Clip.Reference, Text);
+
     public int HallucinatedWords => Clip.ExpectsSilence ? Accuracy.HallucinatedWords(Text) : 0;
 }
 
@@ -86,7 +89,7 @@ public sealed class Benchmark(string clipsDir, string modelsDir, bool useVad) : 
         }
     }
 
-    public async Task<ModelResult> RunAsync(ModelSpec model, string language)
+    public async Task<ModelResult> RunAsync(ModelSpec model, string language, string? prompt = null)
     {
         var modelPath = Path.Combine(modelsDir, model.FileName);
         if (!File.Exists(modelPath))
@@ -96,10 +99,16 @@ public sealed class Benchmark(string clipsDir, string modelsDir, bool useVad) : 
         using var factory = WhisperFactory.FromPath(modelPath);
         loadWatch.Stop();
 
-        using var processor = factory.CreateBuilder()
+        var builder = factory.CreateBuilder()
             .WithLanguage(language)
-            .WithNoContext()
-            .Build();
+            .WithNoContext();
+
+        // WithNoContext stops carry-over between clips; the prompt is the one piece
+        // of context that is supposed to persist, so it is applied after.
+        if (!string.IsNullOrWhiteSpace(prompt))
+            builder = builder.WithPrompt(prompt);
+
+        using var processor = builder.Build();
 
         var results = new List<ClipResult>();
         var warmedUp = false;

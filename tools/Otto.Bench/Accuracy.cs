@@ -13,10 +13,26 @@ namespace Otto.Bench;
 /// </summary>
 public static class Accuracy
 {
-    public static double WordErrorRate(string reference, string hypothesis)
+    public static double WordErrorRate(string reference, string hypothesis) =>
+        Rate(reference, hypothesis, keepAccents: false);
+
+    /// <summary>
+    /// Accent-sensitive WER.
+    ///
+    /// The lenient metric strips accents so that harmless spelling noise does not
+    /// dominate. But Rioplatense voseo is marked precisely by the accent — "Corré"
+    /// against "Corre", "fijate" against "fíjate", "instalá" against "instala" —
+    /// so the lenient metric is structurally blind to the exact failure this
+    /// project cares about. Report both: the lenient one ranks models, this one
+    /// sees the register.
+    /// </summary>
+    public static double WordErrorRateStrict(string reference, string hypothesis) =>
+        Rate(reference, hypothesis, keepAccents: true);
+
+    private static double Rate(string reference, string hypothesis, bool keepAccents)
     {
-        var refWords = Normalize(reference);
-        var hypWords = Normalize(hypothesis);
+        var refWords = Normalize(reference, keepAccents);
+        var hypWords = Normalize(hypothesis, keepAccents);
 
         if (refWords.Length == 0)
             return hypWords.Length == 0 ? 0d : 1d;
@@ -27,14 +43,18 @@ public static class Accuracy
     /// <summary>Words invented out of silence. Only meaningful for the silence clips.</summary>
     public static int HallucinatedWords(string hypothesis) => Normalize(hypothesis).Length;
 
-    public static string[] Normalize(string text)
+    public static string[] Normalize(string text, bool keepAccents = false)
     {
         var stripped = new StringBuilder(text.Length);
 
         foreach (var ch in text.Normalize(NormalizationForm.FormD))
         {
             var category = CharUnicodeInfo.GetUnicodeCategory(ch);
-            if (category == UnicodeCategory.NonSpacingMark) continue;
+            if (category == UnicodeCategory.NonSpacingMark)
+            {
+                if (keepAccents) stripped.Append(ch);
+                continue;
+            }
 
             if (char.IsLetterOrDigit(ch)) stripped.Append(char.ToLowerInvariant(ch));
             else stripped.Append(' ');

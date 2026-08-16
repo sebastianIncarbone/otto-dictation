@@ -223,7 +223,7 @@ Los puertos que definen la frontera:
 ```csharp
 public interface IHotkeyService     // registrar combinación, eventos de presión y liberación
 public interface IAudioCapture      // PCM 16 kHz mono float32
-public interface ITranscriber       // audio → texto
+public interface ITranscriber       // audio + prompt de contexto → texto
 public interface ITextInjector      // escribir en la ventana con foco
 public interface IForegroundWindow  // qué proceso tiene el foco
 public interface IOverlayHost       // mostrar/ocultar el personaje, cambiar estado
@@ -233,6 +233,13 @@ public interface IPostProcessor     // limpieza opcional con LLM
 
 `Otto.Core` orquesta el pipeline hablando **solo** con estas interfaces. Se puede
 testear el flujo entero sin micrófono, sin GPU y sin ventana en foco.
+
+**Ojo con el orden de dependencias:** el [hito 0.5](../hito-0-5-resultados.md)
+mostró que el `initial_prompt` tiene que elegirse según la aplicación en foco,
+porque un prompt técnico mejora mucho el dictado con jerga y empeora un poco el
+narrativo. O sea que `IForegroundWindow` alimenta a `ITranscriber` **antes** de
+inferir, no solo a `IPostProcessor` después. Es la diferencia entre un pipeline
+lineal y uno donde el contexto se resuelve primero.
 
 ---
 
@@ -533,11 +540,11 @@ listo es la plataforma.
 | Hito | Entregable | Criterio de corte |
 |---|---|---|
 | ~~0~~ | ~~Spike de latencia y precisión~~ | ✅ **Superado.** [Resultados](../hito-0-resultados.md): 0,53 s de mediana con `large-v3-turbo` en Vulkan |
-| 0.5 | Precisión de vocabulario | `initial_prompt` con jerga técnica y anclaje de voseo. Criterio: bajar `08-nombres` de 67 % a algo usable, sin perder latencia |
+| ~~0.5~~ | ~~Precisión de vocabulario~~ | ✅ **Superado.** [Resultados](../hito-0-5-resultados.md): `08-nombres` de 67 % a 17 %, sin costo de latencia |
 | 1 | Pipeline mínimo | Hotkey → grabar → transcribir → escribir en Notepad |
 | 2 | Persistencia y notas | SQLite + la sección de transcripciones editables con títulos y botón de copiar |
 | 3 | Shell de la aplicación | Ventana principal en Avalonia, settings persistidos, bandeja, minimizar en vez de cerrar, arranque con el sistema |
-| 4 | Post-procesamiento | Ollama + detección de contexto + diccionario personalizado |
+| 4 | Post-procesamiento | Ollama + detección de contexto + diccionario personalizado + **regla de voseo** |
 | 5 | Personaje animado | Overlay Lottie, click-through, estados visuales, sin robo de foco |
 | 6 | Distribución | Asistente de primer arranque, detección de hardware, descarga reanudable, ZIP portable, GIF de demo, CI. Criterio de corte: la checklist de [Distribución y primer arranque](../distribucion-y-primer-arranque.md) |
 
