@@ -36,6 +36,10 @@ try
             await RunPromptsAsync();
             break;
 
+        case "voseo":
+            await RunVoseoAsync();
+            break;
+
         case "bench":
             await RunBenchAsync();
             break;
@@ -80,6 +84,74 @@ async Task RunBenchAsync()
     }
 
     await File.WriteAllTextAsync(output, Report.Render(runtime, runtimeInfo, useVad, results, clipsDir));
+
+    Console.WriteLine($"Reporte escrito en {Path.GetFullPath(output)}");
+}
+
+// Milestone 4: which local model can fix the voseo without rewriting the dictation.
+// Transcribes once, then feeds that same text to every candidate, so the only
+// variable is the corrector.
+async Task RunVoseoAsync()
+{
+    using var ollama = new Ollama();
+
+    if (!await ollama.IsAvailableAsync())
+    {
+        Console.WriteLine("Ollama no responde en localhost:11434.");
+        return;
+    }
+
+    var candidates = Flag("--models")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                     ?? [.. await ollama.ModelsAsync()];
+
+    Console.WriteLine($"Modelos a probar: {string.Join(", ", candidates)}");
+    Console.WriteLine();
+
+    Benchmark.ConfigureRuntime(Flag("--runtime") ?? "vulkan");
+
+    using var benchmark = new Benchmark(clipsDir, modelsDir, useVad: true);
+    var speech = Models.Resolve("large-v3-turbo").First();
+
+    Console.WriteLine("Transcribiendo una vez…");
+    var transcribed = await benchmark.RunAsync(speech, Flag("--lang") ?? "es");
+    Console.WriteLine();
+
+    var runs = new List<VoseoRun>();
+
+    foreach (var model in candidates)
+    {
+        Console.WriteLine($"  {model}");
+        var results = new List<VoseoResult>();
+
+        foreach (var clip in transcribed.Clips.Where(c => !c.Clip.ExpectsSilence))
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+
+            string corrected;
+            try
+            {
+                corrected = args.Contains("--prompt-viejo")
+                    ? await ollama.GenerateAsync(model, Voseo.Prompt(clip.Text))
+                    : await ollama.ChatAsync(model, Voseo.Messages(clip.Text));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"    {clip.Clip.Id,-14} error: {ex.Message}");
+                continue;
+            }
+
+            watch.Stop();
+
+            results.Add(new VoseoResult(clip.Clip, clip.Text, corrected, watch.Elapsed.TotalSeconds));
+            Console.WriteLine($"    {clip.Clip.Id,-14} {watch.Elapsed.TotalSeconds,6:F2}s");
+        }
+
+        runs.Add(new VoseoRun(model, results));
+        Console.WriteLine();
+    }
+
+    var output = Flag("--out") ?? "resultados-voseo.md";
+    await File.WriteAllTextAsync(output, VoseoReport.Render(runs));
 
     Console.WriteLine($"Reporte escrito en {Path.GetFullPath(output)}");
 }
