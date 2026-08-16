@@ -43,9 +43,13 @@ La mejora real era el doble de lo que mostraba la primera tabla.
 transcripción inmediatamente anterior**. Por eso funciona mejor como prosa que como
 lista: está cebando una continuación, no cargando un diccionario.
 
-> **Límite duro:** el prompt se trunca alrededor de los 224 tokens. El diccionario
-> personalizado de la aplicación tiene que respetar ese presupuesto — no puede
-> crecer libremente. Es una restricción de diseño, no un detalle.
+> **Límite duro:** el prompt se trunca alrededor de los 224 tokens, y whisper.cpp
+> **corta y sigue, sin error**. Un diccionario que se pasa pierde sus últimos
+> términos en silencio, y el usuario concluye que la función no sirve.
+>
+> El prompt es gratis en **tiempo** — está medido, no cuesta latencia. No es
+> gratis en **capacidad**. Ver [§ El diccionario no se le muestra al
+> usuario](#el-diccionario-no-se-le-muestra-al-usuario-en-tokens).
 
 ---
 
@@ -133,6 +137,28 @@ clips técnicos, a cambio de 5 puntos en los clips narrativos.
 `IPostProcessor` deja de ser el único consumidor de la detección de contexto. El
 transcriptor también la necesita, **antes** de inferir.
 
+### El diccionario no se le muestra al usuario en tokens
+
+El límite de 224 tokens es real, pero un contador de tokens en la pantalla de
+configuración sería filtrarle al usuario un detalle de implementación. Nadie sabe
+qué es un token, y nadie debería tener que saberlo para usar un dictado.
+
+**El prompt contextual ya resuelve el problema por su cuenta.** Si a cada dictado
+se le inyectan solo los términos del contexto en foco, el prompt se mantiene chico
+sin que el usuario administre nada: el diccionario completo puede tener trescientos
+términos mientras el de "terminal" tenga veinte.
+
+O sea que el diccionario **no se limita**. Se organiza por contexto, que es como el
+usuario ya piensa sus términos.
+
+Solo si un contexto en particular se pasa de largo hay que avisar, y en su idioma:
+
+> *"En 'Terminal' tenés más términos de los que entran. Los últimos no se van a
+> usar — probá moverlos a otro contexto o sacar los que menos uses."*
+
+Nunca *"excediste el presupuesto de 224 tokens"*. El límite es nuestro problema, no
+suyo; lo que sí es suyo es saber que algo que agregó no va a tener efecto.
+
 ---
 
 ## Qué cambia en el plan
@@ -141,8 +167,10 @@ transcriptor también la necesita, **antes** de inferir.
 2. **El prompt se selecciona por contexto**, junto al modo de formato. La
    detección de ventana en foco sube de prioridad: ahora la necesita el pipeline
    de transcripción, no solo el post-proceso.
-3. **El diccionario personalizado alimenta el prompt**, con un presupuesto de
-   ~224 tokens que hay que respetar y mostrarle al usuario.
+3. **El diccionario personalizado alimenta el prompt, organizado por contexto.**
+   No se limita ni se le muestran tokens al usuario: el filtro por contexto
+   mantiene el prompt corto solo. Se avisa únicamente si un contexto se pasa, y en
+   lenguaje de persona.
 4. **El voseo pasa al hito 4**, como regla explícita de post-procesamiento. El
    `initial_prompt` no lo resuelve.
 5. **La métrica de precisión reporta acentos.** Sin eso no se puede medir voseo.

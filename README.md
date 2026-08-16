@@ -6,10 +6,10 @@ Dictado por voz para Windows. Apretás una tecla, hablás, y el texto aparece do
 estabas escribiendo — en cualquier programa. La transcripción es 100% local: tu voz
 no sale de tu computadora.
 
-> **Estado: hitos 0 y 0.5 superados.** Todavía no hay aplicación, pero la
-> viabilidad está medida: **0,53 s de mediana** para transcribir, un dictado de 30
-> segundos con 2 % de error, y los nombres propios técnicos de 67 % a 17 % de error
-> con `initial_prompt`. Siguiente: hito 1, el pipeline mínimo de punta a punta.
+> **Estado: hito 1 superado — ya dicta.** Todavía sin interfaz, pero el pipeline
+> anda de punta a punta: mantenés Ctrl+Alt+Espacio, hablás, soltás, y el texto
+> aparece en la ventana que tenga el foco. **0,81 s de punta a punta**, con el
+> portapapeles restaurado intacto. Siguiente: hito 2, persistencia y notas.
 > [Hito 0](docs/hito-0-resultados.md) · [Hito 0.5](docs/hito-0-5-resultados.md)
 
 ## Por qué

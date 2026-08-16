@@ -541,7 +541,7 @@ listo es la plataforma.
 |---|---|---|
 | ~~0~~ | ~~Spike de latencia y precisión~~ | ✅ **Superado.** [Resultados](../hito-0-resultados.md): 0,53 s de mediana con `large-v3-turbo` en Vulkan |
 | ~~0.5~~ | ~~Precisión de vocabulario~~ | ✅ **Superado.** [Resultados](../hito-0-5-resultados.md): `08-nombres` de 67 % a 17 %, sin costo de latencia |
-| 1 | Pipeline mínimo | Hotkey → grabar → transcribir → escribir en Notepad |
+| ~~1~~ | ~~Pipeline mínimo~~ | ✅ **Superado.** Dictado completo en 0,81–0,92 s de punta a punta, portapapeles restaurado intacto |
 | 2 | Persistencia y notas | SQLite + la sección de transcripciones editables con títulos y botón de copiar |
 | 3 | Shell de la aplicación | Ventana principal en Avalonia, settings persistidos, bandeja, minimizar en vez de cerrar, arranque con el sistema |
 | 4 | Post-procesamiento | Ollama + detección de contexto + diccionario personalizado + **regla de voseo** |
