@@ -14,7 +14,7 @@
       congelada en el 1.0.0 que .NET pone por defecto, "estás al día" es la
       respuesta para siempre.
     -->
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
 
     <!--
       Un warning que aparece en cada build deja de leerse a los dos días, y a
