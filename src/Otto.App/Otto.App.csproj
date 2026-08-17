@@ -1,6 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <!-- El personaje. Es el único binario que el repositorio acepta: arte
+         autoral, estable, y de él salen tanto el overlay como el .ico. Si la
+         carpeta no existe, el glob queda vacío y Otto dibuja la cara de
+         respaldo. -->
+    <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Otto.Core\Otto.Core.csproj" />
     <ProjectReference Include="..\Otto.Speech\Otto.Speech.csproj" />
     <ProjectReference Include="..\Otto.Platform.Windows\Otto.Platform.Windows.csproj" />

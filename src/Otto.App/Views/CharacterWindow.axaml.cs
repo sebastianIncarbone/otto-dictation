@@ -24,12 +24,27 @@ public partial class CharacterWindow : Window
 
     public CharacterWindow(IOverlayStyler styler) : this() => this.styler = styler;
 
+    /// <summary>
+    /// Wires the character to the pipeline.
+    ///
+    /// The state drives what Otto is doing; the two events drive what he thinks
+    /// about how it went. Those are reactions, not states — the pipeline is back
+    /// to idle either way — so they are shown for a moment and then dropped.
+    /// </summary>
     public void Follow(DictationPipeline pipeline)
     {
         Character.State = pipeline.State;
 
         pipeline.StateChanged += state =>
             Dispatcher.UIThread.Post(() => Character.State = state);
+
+        pipeline.Dictated += (_, _) =>
+            Dispatcher.UIThread.Post(() => Character.React(OttoPose.Pleased));
+
+        // Held the key and said nothing — a muted microphone looks exactly like
+        // this, and without a reaction the user gets no signal at all.
+        pipeline.HeardNothing += () =>
+            Dispatcher.UIThread.Post(() => Character.React(OttoPose.Annoyed, 1.8));
     }
 
     protected override void OnOpened(EventArgs e)

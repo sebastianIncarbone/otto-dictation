@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:views="using:Otto.App.Views"
         x:Class="Otto.App.Views.CharacterWindow"
-        Width="96" Height="96"
+        Width="144" Height="144"
         WindowDecorations="None"
         Background="Transparent"
         TransparencyLevelHint="Transparent"

@@ -55,6 +55,16 @@ public sealed class DictationPipeline : IDisposable
     /// <summary>Fired once the note is on disk, which happens after injection.</summary>
     public event Action<Note>? Saved;
 
+    /// <summary>
+    /// Fired when the key was held but nothing was said.
+    ///
+    /// Distinct from a failure: nothing went wrong, there was simply no speech. It
+    /// exists because that case is invisible otherwise — the user holds the key,
+    /// talks to a muted microphone, releases, and nothing at all happens. Somebody
+    /// has to be able to say so.
+    /// </summary>
+    public event Action? HeardNothing;
+
     public async Task StartAsync(HotkeyBinding binding, CancellationToken cancellationToken = default)
     {
         Transition(DictationState.Loading);
@@ -114,6 +124,7 @@ public sealed class DictationPipeline : IDisposable
             if (string.IsNullOrWhiteSpace(text))
             {
                 log.LogInformation("Sin voz detectada, nada que escribir");
+                HeardNothing?.Invoke();
                 return;
             }
 
