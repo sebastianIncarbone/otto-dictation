@@ -58,12 +58,30 @@ Todos los números y cómo se obtuvieron: [hito 0](docs/hito-0-resultados.md),
 
 ## Instalación
 
-1. Bajá `Otto-windows-x64.zip` de la sección de releases (~75 MB).
-2. Descomprimilo donde quieras. **No hace falta instalar .NET ni nada más.**
-3. Ejecutá `Otto.App.exe`.
+Bajá **`Otto-Setup.exe`** de la sección de releases (~47 MB) y ejecutalo.
+
+No pide administrador: Otto se instala para tu usuario, en
+`%LOCALAPPDATA%\Programs\Otto`. El instalador te deja elegir si querés el acceso
+directo en el menú Inicio y en el escritorio, y deja la entrada correspondiente en
+*Agregar o quitar programas*. **No hace falta instalar .NET ni nada más.**
 
 La primera vez baja el modelo de voz (~1,6 GB con GPU, ~150 MB sin ella) y abre la
 ventana. Después arranca directo en la bandeja.
+
+<details>
+<summary><b>¿Preferís no instalar nada?</b></summary>
+
+`Otto-windows-x64.zip` (~75 MB) es la misma aplicación en versión portable:
+descomprimila donde quieras y ejecutá `Otto.App.exe`. Sirve para un pendrive o para
+una máquina donde no podés instalar programas.
+
+La diferencia está en cómo se saca: la versión instalada se desinstala desde
+*Agregar o quitar programas*; la portable la limpia Otto desde su propia
+configuración, y la carpeta la borrás vos.
+</details>
+
+Al desinstalar, **tus notas y el modelo descargado no se borran salvo que digas que
+sí.** Reinstalar te devuelve todo tal cual, sin volver a bajar 1,6 GB.
 
 > **Windows te va a mostrar una advertencia azul de SmartScreen.** Otto no está
 > firmado con un certificado de código, que cuesta varios cientos de dólares por
@@ -140,10 +158,16 @@ no fuera posible, la separación sería decoración.
 ## Compilar
 
 ```bash
-dotnet build            # requiere .NET 10 SDK
+dotnet build                        # requiere .NET 10 SDK
 dotnet test
-.\build\publicar.ps1    # arma dist\Otto-windows-x64.zip
+.\build\publicar.ps1                # arma dist\Otto-Setup.exe y dist\Otto-windows-x64.zip
+.\build\publicar.ps1 -NoInstaller   # solo el ZIP portable
 ```
+
+El instalador necesita Inno Setup (`winget install JRSoftware.InnoSetup`). Si falta,
+`publicar.ps1` corta con un error en vez de saltearlo: una release que sale sin
+instalador porque el paso se salteó en silencio no la nota nadie hasta que alguien
+pregunta dónde está el archivo.
 
 ### Publicar una versión
 

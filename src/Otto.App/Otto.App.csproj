@@ -18,6 +18,15 @@
   </ItemGroup>
 
   <PropertyGroup>
+    <!--
+      Lo genera build\icono.ps1 y no se commitea, por la misma razón que los
+      íconos de bandeja se dibujan en código: el repositorio no acumula
+      binarios. La condición existe para que `dotnet build` a secas funcione
+      sin haber corrido el script — el ícono sólo importa en lo que se
+      distribuye, y publicar.ps1 lo genera antes del publish.
+    -->
+    <ApplicationIcon Condition="Exists('Otto.ico')">Otto.ico</ApplicationIcon>
+
     <OutputType>WinExe</OutputType>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>

@@ -489,6 +489,11 @@ resultados-*.md
 
 # Estado de tooling local, no del proyecto
 .atl/
+.codegraph/
 
 # Artefactos de empaquetado
 dist/
+
+# El ícono se genera con build/icono.ps1 en cada publicación. Igual que los
+# íconos de bandeja, el dibujo vive en código y no como binario commiteado.
+src/Otto.App/Otto.ico

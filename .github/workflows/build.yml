@@ -24,12 +24,20 @@ jobs:
       - name: Testear
         run: dotnet test --configuration Release --nologo --no-build
 
-      # El ZIP se arma en cada push, no solo al etiquetar: un empaquetado que se
-      # ejercita una vez por release es un empaquetado que se rompe en silencio.
+      # No viene con la imagen del runner. publicar.ps1 falla si no lo encuentra,
+      # a proposito: una release que sale sin instalador porque el paso se salteo
+      # en silencio es peor que un build roto.
+      - name: Instalar Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      # Los dos artefactos se arman en cada push, no solo al etiquetar: un
+      # empaquetado que se ejercita una vez por release es un empaquetado que se
+      # rompe en silencio.
       #
       # Al etiquetar, la version sale de la etiqueta. Si la aplicacion dijera una
       # version distinta a la publicada, el chequeo de actualizaciones mentiria en
-      # silencio para siempre.
+      # silencio para siempre. El instalador toma la suya del ejecutable ya
+      # publicado, asi que tampoco puede divergir.
       - name: Empaquetar
         shell: pwsh
         run: |
@@ -39,7 +47,9 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: Otto-windows-x64
-          path: dist/Otto-windows-x64.zip
+          path: |
+            dist/Otto-Setup.exe
+            dist/Otto-windows-x64.zip
           retention-days: 30
 
   release:
@@ -57,15 +67,31 @@ jobs:
       - name: Publicar release
         uses: softprops/action-gh-release@v2
         with:
-          files: Otto-windows-x64.zip
+          files: |
+            Otto-Setup.exe
+            Otto-windows-x64.zip
           body: |
             ## Instalación
 
-            Descomprimí y ejecutá `Otto.App.exe`. No hace falta instalar .NET.
+            Bajá **`Otto-Setup.exe`** y ejecutalo. No pide administrador, y te deja
+            elegir el acceso directo en el menú Inicio y en el escritorio. Se
+            desinstala desde *Agregar o quitar programas*, como cualquier otro
+            programa.
+
+            No hace falta instalar .NET ni nada más.
+
+            <details>
+            <summary>¿Preferís no instalar nada?</summary>
+
+            `Otto-windows-x64.zip` es la misma aplicación en versión portable:
+            descomprimila donde quieras y ejecutá `Otto.App.exe`. Sirve para un
+            pendrive o para una máquina donde no podés instalar programas. La
+            desinstalación en ese caso la hace Otto desde su configuración.
+            </details>
 
             Windows va a mostrar una advertencia de SmartScreen porque el
             ejecutable no está firmado: **Más información** → **Ejecutar de todas
-            formas**. Subí este ZIP a [VirusTotal](https://www.virustotal.com) si
-            querés verificarlo antes.
+            formas**. Subilo a [VirusTotal](https://www.virustotal.com) si querés
+            verificarlo antes.
 
             La primera vez baja el modelo de voz. Después funciona sin internet.

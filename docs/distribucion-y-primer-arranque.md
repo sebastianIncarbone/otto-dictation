@@ -177,19 +177,101 @@ configuración de privacidad de Windows.
 
 ### Trampa 7 — ZIP portable significa que no hay instalador
 
-El brief decide, con buen criterio, que no hay MSI firmado. La consecuencia es que
-hay cosas que la aplicación tiene que hacer sola:
+**Resuelta.** Y la lección está en cómo se había planteado mal.
 
-| Lo que un instalador haría | Quién lo hace acá |
+El brief decidió, con buen criterio, que **no hay MSI firmado**. En algún momento
+eso se leyó como *no hay instalador*, y son dos cosas distintas: lo caro y lo
+inviable era el certificado, no el instalador. Un instalador sin firmar es
+perfectamente posible — trae exactamente la misma advertencia de SmartScreen que
+un ZIP sin firmar, ni una más.
+
+Con esa distinción hecha, la decisión se vuelve fácil: **Inno Setup**, gratis, un
+solo `.exe` de salida, y el script vive en `build/otto.iss`.
+
+| Lo que un instalador haría | Quién lo hace ahora |
 |---|---|
-| Entrada en el menú Inicio | Nadie. Se corre desde la carpeta |
-| Arranque con Windows | Otto, escribiendo la clave `Run` del registro o un acceso directo en Startup — desde la configuración, con checkbox |
-| Desinstalación | El usuario borra la carpeta. **Otto tiene que ofrecer un botón que borre también `%APPDATA%` y `%LOCALAPPDATA%`**, o queda basura |
+| Entrada en el menú Inicio | El instalador, con checkbox |
+| Acceso directo en el escritorio | El instalador, con checkbox |
+| Entrada en "Agregar o quitar programas" | El instalador |
+| Desinstalación | El desinstalador de Windows, que además pregunta si borrar los datos |
+| Arranque con Windows | **Otto, desde su configuración.** Deliberadamente NO está en el instalador |
 | Asociaciones de archivos | No aplica |
 
-Un detalle que se olvida siempre: si el usuario mueve la carpeta después de activar
-el arranque automático, el acceso directo queda apuntando a la nada. Validar la
-ruta al arrancar y reescribirla si cambió.
+#### Por qué es por usuario y no en Archivos de programa
+
+Otto ya es una aplicación por usuario de punta a punta: configuración en
+`%APPDATA%`, notas y modelo en `%LOCALAPPDATA%`, arranque automático en `HKCU`.
+Instalar en `Archivos de programa` no compartiría **nada** de eso — cada usuario
+igual se bajaría su propio modelo de 1,6 GB — y sumaría un aviso de UAC encima del
+de SmartScreen. Dos pantallas de miedo seguidas antes de ver la aplicación es peor
+producto, no más seriedad.
+
+Va entonces a `%LOCALAPPDATA%\Programs\Otto`, que es donde instalan las
+aplicaciones por usuario en Windows moderno. Es, sin ir más lejos, dónde termina el
+propio Inno Setup si lo instalás con `winget` sin elevar.
+
+#### La separación que hace que reinstalar no duela
+
+```
+%LOCALAPPDATA%\Programs\Otto   la aplicación   ← la borra el desinstalador
+%LOCALAPPDATA%\Otto            notas, modelos  ← sobreviven salvo que digas que sí
+%APPDATA%\Otto                 configuración   ← ídem
+```
+
+Son carpetas **hermanas**, no anidadas, y eso es a propósito. Si la aplicación
+viviera dentro de `%LOCALAPPDATA%\Otto`, el botón de desinstalar que Otto ya tenía
+—que borra esa carpeta entera— estaría borrando el ejecutable en ejecución.
+
+#### El arranque automático no va en el instalador
+
+Es la opción que todo instalador ofrece y acá se dejó afuera. Otto ya tiene ese
+checkbox en su configuración, y ese checkbox refleja el estado real de la clave
+`Run`. Si el instalador también la escribiera, habría dos fuentes de verdad que se
+pisan la primera vez que alguien toque *Guardar* en la configuración y
+`Autostart.Apply(false)` borre lo que el instalador había puesto.
+
+#### Dos formas de sacarlo, y no se pueden contradecir
+
+Ahora Otto se distribuye de dos maneras, así que hay dos caminos de desinstalación.
+`Uninstaller.InstalledUninstaller()` los distingue leyendo la clave que Inno deja en
+`HKCU`:
+
+- **Instalado:** Windows manda. El botón de la configuración abre el desinstalador
+  real y Otto se corre a un costado. Borrar los datos desde adentro dejaría los
+  archivos del programa y la entrada de "Agregar o quitar programas" huérfanas —
+  un desastre peor que el que ese botón existía para evitar.
+- **Portable:** no hay nadie más que lo haga, así que lo hace Otto, como siempre.
+
+#### La trampa dentro de la trampa: desinstalar en silencio
+
+El desinstalador pregunta si borrar las notas y el modelo. La versión "cuidadosa"
+de ese código —preguntar siempre— tiene un agujero que muerde fuerte:
+
+> **Inno responde que sí a los cuadros de Sí/No cuando se los suprime con
+> `/SUPPRESSMSGBOXES`.** No respeta el botón por defecto.
+
+O sea que cualquiera que desinstale desde un script o una herramienta de
+administración perdería las notas y 1,6 GB de modelo sin pantalla y sin haberlo
+pedido. Por eso `CurUninstallStepChanged` chequea `WizardSilent()` y **conserva**
+cuando no hay nadie mirando. Quien de verdad quiera limpiar todo lo dice con
+`/DELETEDATA`.
+
+#### Lo que el instalador NO arregla
+
+**SmartScreen.** Sigue igual, porque el problema es la firma, no el formato. Ver
+trampa 2.
+
+#### El ZIP portable se mantiene
+
+No lo reemplaza: convive. Sirve para un pendrive, para una máquina con políticas
+que no dejan instalar, y para quien simplemente no quiere que un instalador le
+toque nada. Los dos artefactos salen del mismo `publicar.ps1` y de la misma carpeta
+publicada, así que no hay forma de que diverjan.
+
+Un detalle que se olvida siempre y que **sigue vigente para la versión portable**:
+si el usuario mueve la carpeta después de activar el arranque automático, la
+entrada del registro queda apuntando a la nada. `Autostart.RepairIfMoved()` valida
+la ruta al arrancar y la reescribe si cambió.
 
 ---
 
@@ -199,9 +281,13 @@ Así se ve la experiencia que hay que construir. Es un hito en sí mismo, no alg
 que sale solo:
 
 ```
-  Descomprime el ZIP y ejecuta otto.exe
+  Baja Otto-Setup.exe y lo ejecuta
             ↓
   SmartScreen  →  documentado en el README con captura
+            ↓
+  Instalador: elige accesos directos, acepta. Sin UAC.
+            ↓
+  Otto arranca solo al terminar la instalación
             ↓
   Otto detecta el hardware
   "Encontré una GPU NVIDIA. Te recomiendo large-v3-turbo."
@@ -235,6 +321,12 @@ Sirve como criterio de corte del hito 6. Idealmente, probado en una máquina que
 **no** sea la de desarrollo — sin Visual Studio, sin CUDA Toolkit, sin .NET
 instalado.
 
+- [x] Se instala sin pedir administrador — por usuario, en `%LOCALAPPDATA%\Programs\Otto`
+- [x] Deja acceso directo en el menú Inicio y en el escritorio, ambos opcionales
+- [x] Aparece en "Agregar o quitar programas" y se desinstala desde ahí sin dejar nada
+- [x] Desinstalar no borra las notas ni el modelo salvo que el usuario diga que sí
+- [x] Desinstalar en silencio **conserva** los datos — `WizardSilent()`, porque `/SUPPRESSMSGBOXES` contesta que sí
+- [x] Los accesos directos tienen ícono — generado en build, no commiteado
 - [x] Se descomprime y ejecuta sin instalar .NET — publicado autocontenido
 - [x] Se descomprime y ejecuta sin instalar el VC++ Redistributable — las tres DLL van al lado del ejecutable
 - [x] Arranca en una máquina sin GPU dedicada y recomienda un modelo usable — `HardwareProbe` decide antes de descargar

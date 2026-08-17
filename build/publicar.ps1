@@ -1,11 +1,19 @@
 <#
 .SYNOPSIS
-    Arma el ZIP portable de Otto.
+    Arma el instalador y el ZIP portable de Otto.
 
 .DESCRIPTION
-    Produce una carpeta que alguien descomprime y ejecuta, sin instalar .NET ni
-    el Visual C++ Redistributable. La checklist que esto tiene que satisfacer está
-    en docs/distribucion-y-primer-arranque.md.
+    Produce dos artefactos a partir de la misma carpeta publicada:
+
+    - Otto-Setup.exe, el instalador (menú Inicio, acceso directo, entrada en
+      "Agregar o quitar programas"). Es lo que se le ofrece a una persona.
+    - Otto-windows-x64.zip, la carpeta portable. Sirve para un pendrive, para
+      una máquina donde no se puede instalar nada, y para quien no quiere que
+      un instalador le toque nada.
+
+    Ninguno de los dos necesita .NET ni el Visual C++ Redistributable
+    preinstalados. La checklist que esto tiene que satisfacer está en
+    docs/distribucion-y-primer-arranque.md.
 
     Hay dos limpiezas que no son opcionales:
 
@@ -15,24 +23,71 @@
     - SkiaSharp y HarfBuzz traen sus .pdb: 100 MB de símbolos de depuración que a
       un usuario no le sirven de nada.
 
+    El instalador se compila con Inno Setup. Si falta ISCC.exe el script FALLA en
+    vez de saltearlo: una release que sale sin instalador porque el runner no lo
+    tenía instalado es exactamente el tipo de error que nadie mira hasta que un
+    usuario pregunta dónde está el archivo. Para armar sólo el ZIP, -NoInstaller.
+
 .EXAMPLE
     .\build\publicar.ps1
+
+.EXAMPLE
+    .\build\publicar.ps1 -Version 0.2.0
+
+.EXAMPLE
+    .\build\publicar.ps1 -NoInstaller
 #>
 [CmdletBinding()]
 param(
     [string]$Configuration = 'Release',
     [string]$Runtime = 'win-x64',
     [string]$Version = '',
-    [string]$OutputDir = "$PSScriptRoot\..\dist"
+    [string]$OutputDir = "$PSScriptRoot\..\dist",
+    [switch]$NoInstaller
 )
 
 $ErrorActionPreference = 'Stop'
 $repo = Resolve-Path "$PSScriptRoot\.."
 $staging = Join-Path $OutputDir 'Otto'
 
+# Se busca antes de compilar nada. Descubrir que falta Inno Setup después de
+# cuatro minutos de publish es tiempo tirado.
+$iscc = $null
+
+if (-not $NoInstaller) {
+    # La tercera ruta no es rebuscada: Inno Setup instalado sin privilegios de
+    # administrador — que es lo que pasa con `winget install` a secas — se pone
+    # ahí. Es, de hecho, el mismo lugar donde Otto se instala a sí mismo.
+    $iscc = @(
+        "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+        "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+        "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
+    ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+    if (-not $iscc) {
+        $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
+    }
+
+    if (-not $iscc) {
+        throw @'
+No se encontró ISCC.exe (el compilador de Inno Setup), que hace falta para armar
+el instalador. Instalalo con:
+
+    winget install JRSoftware.InnoSetup
+
+Si sólo querés el ZIP portable, volvé a correr esto con -NoInstaller.
+'@
+    }
+}
+
 Write-Host "==> Limpiando salida anterior"
 if (Test-Path $OutputDir) { Remove-Item $OutputDir -Recurse -Force }
 New-Item -ItemType Directory -Force $staging | Out-Null
+
+# Antes del publish, no después: el ícono se embebe en el ejecutable en tiempo
+# de compilación, y de ahí lo heredan los accesos directos sin configurar nada.
+Write-Host "==> Generando el ícono"
+& "$PSScriptRoot\icono.ps1" -Path "$repo\src\Otto.App\Otto.ico"
 
 Write-Host "==> Publicando ($Configuration, $Runtime, autocontenido)"
 
@@ -106,11 +161,41 @@ Write-Host "==> Comprimiendo"
 $zip = Join-Path $OutputDir 'Otto-windows-x64.zip'
 Compress-Archive -Path $staging -DestinationPath $zip -CompressionLevel Optimal
 
+# La versión del instalador sale del ejecutable ya publicado, nunca del
+# parámetro. Es la misma regla que hace que la etiqueta de git mande: si el
+# instalador dijera una versión y la aplicación otra, "Agregar o quitar
+# programas" y el chequeo de actualizaciones se contradirían en silencio.
+$mostrada = (Get-Item "$staging\Otto.App.exe").VersionInfo.ProductVersion.Split('+')[0]
+$numerica = ($mostrada -split '-')[0]
+
+$setup = $null
+
+if (-not $NoInstaller) {
+    Write-Host "==> Compilando el instalador (version $mostrada)"
+
+    & $iscc /Q `
+        "/DVersion=$mostrada" `
+        "/DNumericVersion=$numerica" `
+        "/DStaging=$staging" `
+        "$PSScriptRoot\otto.iss"
+
+    if ($LASTEXITCODE -ne 0) { throw "Falló la compilación del instalador" }
+
+    $setup = Join-Path $OutputDir 'Otto-Setup.exe'
+    if (-not (Test-Path $setup)) { throw "Inno Setup terminó bien pero no dejó $setup" }
+}
+
 $carpetaMb = (Get-ChildItem $staging -Recurse -File | Measure-Object Length -Sum).Sum / 1MB
 $zipMb = (Get-Item $zip).Length / 1MB
 
 Write-Host ""
+Write-Host ("Version : {0,7}" -f $mostrada)
 Write-Host ("Carpeta : {0,7:N0} MB" -f $carpetaMb)
 Write-Host ("ZIP     : {0,7:N0} MB   {1}" -f $zipMb, $zip)
+
+if ($setup) {
+    Write-Host ("Setup   : {0,7:N0} MB   {1}" -f ((Get-Item $setup).Length / 1MB), $setup)
+}
+
 Write-Host ""
 Write-Host "El modelo NO va adentro: se descarga en el primer arranque (~1,6 GB)."

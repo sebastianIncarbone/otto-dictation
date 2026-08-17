@@ -171,15 +171,22 @@ public sealed partial class MainViewModel : ObservableObject
     /// Two steps, not a dialog. The first click states exactly what disappears —
     /// how many notes, how many megabytes — because "borrar mis datos" is abstract
     /// and "borrar 340 notas" is not.
+    ///
+    /// What it promises depends on how Otto got here. Installed, Windows runs the
+    /// removal and asks about the data itself, so claiming the notes are about to
+    /// go would be describing something this button does not do.
     /// </summary>
     [RelayCommand]
     private void ConfirmUninstall()
     {
         var (bytes, notes) = Uninstaller.Summarise(databasePath);
 
-        UninstallWarning =
-            $"Se van a borrar {notes} nota(s), la configuración y los modelos descargados " +
-            $"({bytes / 1024d / 1024:N0} MB). No se puede deshacer. Otto se va a cerrar.";
+        UninstallWarning = Uninstaller.InstalledUninstaller() is not null
+            ? $"Se va a abrir el desinstalador de Windows, que te va a preguntar si querés " +
+              $"borrar también tus {notes} nota(s) y los modelos descargados " +
+              $"({bytes / 1024d / 1024:N0} MB). Otto se va a cerrar."
+            : $"Se van a borrar {notes} nota(s), la configuración y los modelos descargados " +
+              $"({bytes / 1024d / 1024:N0} MB). No se puede deshacer. Otto se va a cerrar.";
 
         IsConfirmingUninstall = true;
     }
