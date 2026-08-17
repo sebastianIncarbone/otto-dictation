@@ -19,6 +19,7 @@ public sealed class DictationPipeline : IDisposable
     private readonly ITextInjector injector;
     private readonly IForegroundWindow foreground;
     private readonly INoteRepository notes;
+    private readonly IPostProcessor postProcessor;
     private readonly ILogger<DictationPipeline> log;
 
     private DictationContext pending = DictationContext.Unknown;
@@ -31,6 +32,7 @@ public sealed class DictationPipeline : IDisposable
         ITextInjector injector,
         IForegroundWindow foreground,
         INoteRepository notes,
+        IPostProcessor postProcessor,
         ILogger<DictationPipeline> log)
     {
         this.hotkey = hotkey;
@@ -39,6 +41,7 @@ public sealed class DictationPipeline : IDisposable
         this.injector = injector;
         this.foreground = foreground;
         this.notes = notes;
+        this.postProcessor = postProcessor;
         this.log = log;
     }
 
@@ -59,6 +62,10 @@ public sealed class DictationPipeline : IDisposable
         var watch = Stopwatch.StartNew();
         await transcriber.LoadAsync(cancellationToken);
         log.LogInformation("Modelo cargado en {Seconds:F1} s", watch.Elapsed.TotalSeconds);
+
+        // Asked once at startup rather than on every dictation: a health check in
+        // the hot path would cost more than the correction it guards.
+        await postProcessor.ProbeAsync(cancellationToken);
 
         hotkey.Pressed += OnPressed;
         hotkey.Released += OnReleased;
@@ -110,13 +117,21 @@ public sealed class DictationPipeline : IDisposable
                 return;
             }
 
+            // On the critical path on purpose: correcting after the text is already
+            // in the document would mean rewriting what the user is looking at.
+            // It costs about a third of a second and has its own timeout, so the
+            // worst case is the raw transcription arriving slightly later.
+            watch.Restart();
+            text = await postProcessor.ProcessAsync(text, context);
+            var corrected = watch.Elapsed;
+
             watch.Restart();
             await injector.InjectAsync(text);
 
             log.LogInformation(
-                "{Audio:F1} s de audio → {Chars} caracteres · transcripción {Transcribe:F2} s · inyección {Inject:F2} s · total {Total:F2} s",
+                "{Audio:F1} s de audio → {Chars} caracteres · transcripción {Transcribe:F2} s · corrección {Correct:F2} s · inyección {Inject:F2} s · total {Total:F2} s",
                 audio.Duration.TotalSeconds, text.Length,
-                transcribed.TotalSeconds, watch.Elapsed.TotalSeconds, total.Elapsed.TotalSeconds);
+                transcribed.TotalSeconds, corrected.TotalSeconds, watch.Elapsed.TotalSeconds, total.Elapsed.TotalSeconds);
 
             Dictated?.Invoke(text, context);
 

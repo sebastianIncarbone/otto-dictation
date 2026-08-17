@@ -6,11 +6,11 @@ Dictado por voz para Windows. Apretás una tecla, hablás, y el texto aparece do
 estabas escribiendo — en cualquier programa. La transcripción es 100% local: tu voz
 no sale de tu computadora.
 
-> **Estado: hito 3 — ya es una aplicación.** Corre en la bandeja del sistema,
-> dicta en cualquier programa en **0,81 s** de punta a punta, y guarda todo lo que
-> dictás como notas editables con búsqueda. Consume 189 MB en reposo. Falta el
-> personaje animado y el empaquetado.
-> [Hito 0](docs/hito-0-resultados.md) · [Hito 0.5](docs/hito-0-5-resultados.md)
+> **Estado: siete de ocho hitos.** Corre en la bandeja con un personaje animado en
+> pantalla, dicta en cualquier programa en **1,02 s** de punta a punta —incluida la
+> corrección al rioplatense—, y guarda todo como notas editables con búsqueda.
+> Falta el empaquetado.
+> [Hito 0](docs/hito-0-resultados.md) · [Hito 0.5](docs/hito-0-5-resultados.md) · [Hito 4](docs/hito-4-resultados.md)
 
 ## Por qué
 
@@ -30,6 +30,7 @@ funcionando.**
 | [ADR 0001 — Stack tecnológico](docs/adr/0001-stack-tecnologico.md) | Qué se eligió, qué se descartó y por qué |
 | [Hito 0 — Resultados medidos](docs/hito-0-resultados.md) | Latencia y precisión en hardware real |
 | [Hito 0.5 — Efecto del `initial_prompt`](docs/hito-0-5-resultados.md) | Cómo se arregló el vocabulario técnico |
+| [Hito 4 — Corrección de voseo](docs/hito-4-resultados.md) | Por qué el prompt importó más que el modelo |
 | [Distribución y primer arranque](docs/distribucion-y-primer-arranque.md) | Qué hace falta para que lo use otra persona |
 | [Brief técnico](docs/brief.md) | El documento de arranque original |
 | [Otto.Bench](tools/Otto.Bench/README.md) | La herramienta de medición del hito 0 |

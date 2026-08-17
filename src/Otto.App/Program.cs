@@ -6,6 +6,7 @@ using Otto.App.ViewModels;
 using Otto.Core;
 using Otto.Platform.Windows;
 using Otto.Speech;
+using Otto.PostProcessing;
 using Otto.Storage;
 using Whisper.net.Ggml;
 
@@ -50,6 +51,15 @@ services.AddSingleton<IHotkeyService, PollingHotkeyService>();
 services.AddSingleton<ITextInjector, ClipboardTextInjector>();
 services.AddSingleton<IForegroundWindow, ForegroundWindowInspector>();
 services.AddSingleton<IOverlayStyler, OverlayStyler>();
+
+// El post-procesamiento es opcional: si no hay un modelo local escuchando, Otto
+// funciona igual con la salida cruda de Whisper.
+services.AddSingleton(new PostProcessingOptions { Model = settings.PostProcessingModel });
+services.AddSingleton<IPostProcessor>(sp => settings.CorrectVoseo
+    ? new OllamaPostProcessor(
+        sp.GetRequiredService<PostProcessingOptions>(),
+        sp.GetRequiredService<ILogger<OllamaPostProcessor>>())
+    : new NullPostProcessor());
 services.AddSingleton<INoteRepository>(sp =>
     new SqliteNoteRepository(databasePath, sp.GetRequiredService<ILogger<SqliteNoteRepository>>()));
 services.AddSingleton<DictationPipeline>();

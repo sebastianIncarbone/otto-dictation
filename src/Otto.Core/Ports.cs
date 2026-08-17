@@ -85,6 +85,35 @@ public interface IPromptProvider
 }
 
 /// <summary>
+/// Cleans up the transcription before it reaches the user's window.
+///
+/// Optional by design: Otto has to work with nothing installed, so an
+/// implementation that returns the text untouched is always valid, and a failure
+/// here can never cost the user their dictation.
+/// </summary>
+public interface IPostProcessor
+{
+    /// <summary>True once the backing service has been found. Checked at startup.</summary>
+    bool IsAvailable { get; }
+
+    Task<bool> ProbeAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Returns the corrected text, or the original whenever anything goes wrong.</summary>
+    Task<string> ProcessAsync(string text, DictationContext context, CancellationToken cancellationToken = default);
+}
+
+/// <summary>Does nothing. What Otto uses when no local model is installed.</summary>
+public sealed class NullPostProcessor : IPostProcessor
+{
+    public bool IsAvailable => false;
+
+    public Task<bool> ProbeAsync(CancellationToken cancellationToken = default) => Task.FromResult(false);
+
+    public Task<string> ProcessAsync(string text, DictationContext context, CancellationToken cancellationToken = default) =>
+        Task.FromResult(text);
+}
+
+/// <summary>
 /// Turns a window into an overlay: always on top, invisible to Alt+Tab and the
 /// taskbar, and transparent to clicks.
 ///

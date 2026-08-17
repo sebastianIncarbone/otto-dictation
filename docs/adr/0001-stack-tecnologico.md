@@ -544,7 +544,7 @@ listo es la plataforma.
 | ~~1~~ | ~~Pipeline mínimo~~ | ✅ **Superado.** Dictado completo en 0,81–0,92 s de punta a punta, portapapeles restaurado intacto |
 | ~~2~~ | ~~Persistencia y notas~~ | ✅ **Superado.** SQLite con FTS5; guardar corre después de inyectar y no le suma latencia |
 | ~~3~~ | ~~Shell de la aplicación~~ | ✅ **Superado.** Avalonia, bandeja con color por estado, cerrar minimiza, arranque con Windows. 189 MB en reposo |
-| 4 | Post-procesamiento | Ollama + detección de contexto + diccionario personalizado + **regla de voseo** |
+| ~~4~~ | ~~Post-procesamiento~~ | ✅ **Superado.** [Resultados](../hito-4-resultados.md): voseo corregido con `qwen2.5:3b`, 18 % → 13 % de error, dictado completo en 1,02 s |
 | 5 | Personaje animado | Overlay Lottie, click-through, estados visuales, sin robo de foco |
 | 6 | Distribución | Asistente de primer arranque, detección de hardware, descarga reanudable, ZIP portable, GIF de demo, CI. Criterio de corte: la checklist de [Distribución y primer arranque](../distribucion-y-primer-arranque.md) |
 

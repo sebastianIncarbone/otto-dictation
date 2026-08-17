@@ -5,6 +5,7 @@
     <ProjectReference Include="..\Otto.Speech\Otto.Speech.csproj" />
     <ProjectReference Include="..\Otto.Platform.Windows\Otto.Platform.Windows.csproj" />
     <ProjectReference Include="..\Otto.Storage\Otto.Storage.csproj" />
+    <ProjectReference Include="..\Otto.PostProcessing\Otto.PostProcessing.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -18,6 +18,10 @@ public class DictationPipelineTests
     private readonly IForegroundWindow foreground = Substitute.For<IForegroundWindow>();
     private readonly INoteRepository notes = Substitute.For<INoteRepository>();
 
+    // Passes the text through untouched, which is exactly what Otto does when no
+    // local model is installed — the configuration most people will run.
+    private readonly IPostProcessor postProcessor = new NullPostProcessor();
+
     private DictationPipeline Build()
     {
         foreground.Current().Returns(new DictationContext("code", "Program.cs"));
@@ -30,7 +34,8 @@ public class DictationPipelineTests
                 call.ArgAt<DictationContext>(1), call.ArgAt<TimeSpan>(2)));
 
         return new DictationPipeline(
-            hotkey, capture, transcriber, injector, foreground, notes, NullLogger<DictationPipeline>.Instance);
+            hotkey, capture, transcriber, injector, foreground, notes, postProcessor,
+            NullLogger<DictationPipeline>.Instance);
     }
 
     private async Task<DictationPipeline> StartedAsync()

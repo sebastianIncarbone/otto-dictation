@@ -22,6 +22,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Otto.Core\Otto.Core.csproj" />
     <ProjectReference Include="..\..\src\Otto.Storage\Otto.Storage.csproj" />
+    <ProjectReference Include="..\..\src\Otto.PostProcessing\Otto.PostProcessing.csproj" />
   </ItemGroup>
 
 </Project>
