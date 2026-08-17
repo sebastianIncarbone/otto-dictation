@@ -16,11 +16,16 @@ var dataDir = Path.Combine(
     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Otto");
 
 var modelsDir = Path.Combine(dataDir, "models");
-var modelPath = Path.Combine(modelsDir, "ggml-large-v3-turbo.bin");
 var vadPath = Path.Combine(modelsDir, "silero-vad.bin");
 var databasePath = Path.Combine(dataDir, "otto.db");
 
-await EnsureModelsAsync(modelsDir, modelPath, vadPath);
+// Qué modelo bajar se decide ANTES de bajarlo, y depende de si esta máquina
+// tiene GPU: son 1,6 GB contra 150 MB, y 0,7 s por dictado contra 17 s.
+var acceleration = HardwareProbe.Detect();
+var (speechModel, speechFile, speechSize) = HardwareProbe.Recommend(acceleration);
+var modelPath = Path.Combine(modelsDir, speechFile);
+
+await EnsureModelsAsync(modelsDir, modelPath, vadPath, speechModel, speechSize);
 
 var settingsStore = new SettingsStore(SettingsStore.DefaultPath);
 var settings = settingsStore.Load();
@@ -92,7 +97,7 @@ static AppBuilder BuildAvaloniaApp() => AppBuilder
     .WithInterFont()
     .LogToTrace();
 
-static async Task EnsureModelsAsync(string dir, string modelPath, string vadPath)
+static async Task EnsureModelsAsync(string dir, string modelPath, string vadPath, string model, string size)
 {
     Directory.CreateDirectory(dir);
 
@@ -101,13 +106,20 @@ static async Task EnsureModelsAsync(string dir, string modelPath, string vadPath
     var downloader = WhisperGgmlDownloader.Default;
 
     if (!File.Exists(modelPath))
-        await SaveAsync(await downloader.GetGgmlModelAsync(GgmlType.LargeV3Turbo), modelPath);
+    {
+        Console.WriteLine($"Descargando {model} ({size}), solo la primera vez…");
+
+        var type = model == "base" ? GgmlType.Base : GgmlType.LargeV3Turbo;
+        await SaveAsync(await downloader.GetGgmlModelAsync(type), modelPath);
+    }
 
     if (!File.Exists(vadPath))
         await SaveAsync(await downloader.GetGgmlSileroVadModelAsync(SileroVadType.V5_1_2), vadPath);
 
     // Write to a temporary name first so an interrupted download never leaves a
-    // truncated .bin that fails later in confusing ways.
+    // truncated .bin that fails later in confusing ways — the failure would
+    // surface as a corrupt model at load time, with nothing pointing at the
+    // download that caused it.
     static async Task SaveAsync(Stream source, string path)
     {
         var temp = path + ".part";

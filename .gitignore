@@ -489,3 +489,6 @@ resultados-*.md
 
 # Estado de tooling local, no del proyecto
 .atl/
+
+# Artefactos de empaquetado
+dist/

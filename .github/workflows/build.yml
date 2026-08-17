@@ -1,0 +1,65 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Compilar
+        run: dotnet build --configuration Release --nologo
+
+      - name: Testear
+        run: dotnet test --configuration Release --nologo --no-build
+
+      # El ZIP se arma en cada push, no solo al etiquetar: un empaquetado que se
+      # ejercita una vez por release es un empaquetado que se rompe en silencio.
+      - name: Empaquetar
+        shell: pwsh
+        run: .\build\publicar.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Otto-windows-x64
+          path: dist/Otto-windows-x64.zip
+          retention-days: 30
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Otto-windows-x64
+
+      - name: Publicar release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Otto-windows-x64.zip
+          body: |
+            ## Instalación
+
+            Descomprimí y ejecutá `Otto.App.exe`. No hace falta instalar .NET.
+
+            Windows va a mostrar una advertencia de SmartScreen porque el
+            ejecutable no está firmado: **Más información** → **Ejecutar de todas
+            formas**. Subí este ZIP a [VirusTotal](https://www.virustotal.com) si
+            querés verificarlo antes.
+
+            La primera vez baja el modelo de voz. Después funciona sin internet.
