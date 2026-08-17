@@ -5,9 +5,22 @@ using Microsoft.Extensions.Logging;
 
 namespace Otto.App;
 
-public sealed record UpdateStatus(bool Available, string CurrentVersion, string? LatestVersion, string? Url)
+public enum UpdateResult { UpToDate, Available, CouldNotCheck }
+
+public sealed record UpdateStatus(UpdateResult Result, string CurrentVersion, string? LatestVersion, string? Url)
 {
-    public static UpdateStatus UpToDate(string current) => new(false, current, current, null);
+    public static UpdateStatus UpToDate(string current) => new(UpdateResult.UpToDate, current, current, null);
+
+    /// <summary>
+    /// Distinto de "estás al día", y a propósito.
+    ///
+    /// No poder averiguarlo — sin red, repositorio privado, GitHub caído — no es
+    /// lo mismo que saber que no hay nada nuevo. Devolver lo segundo cuando pasó
+    /// lo primero es exactamente la mentira silenciosa que ya nos costó una vez
+    /// con el número de versión: nunca falla, nunca avisa, y nunca te enterás.
+    /// </summary>
+    public static UpdateStatus CouldNotCheck(string current) =>
+        new(UpdateResult.CouldNotCheck, current, null, null);
 }
 
 /// <summary>
@@ -61,19 +74,20 @@ public sealed class UpdateChecker : IDisposable
         {
             var release = await http.GetFromJsonAsync<Release>(LatestReleaseUrl, cancellationToken);
 
-            if (release?.Tag is null) return UpdateStatus.UpToDate(Current);
+            if (release?.Tag is null) return UpdateStatus.CouldNotCheck(Current);
 
             var latest = release.Tag.TrimStart('v', 'V');
 
             return IsNewer(latest, Current)
-                ? new UpdateStatus(true, Current, latest, release.Url)
+                ? new UpdateStatus(UpdateResult.Available, Current, latest, release.Url)
                 : UpdateStatus.UpToDate(Current);
         }
         catch (Exception ex)
         {
-            // Being offline is the normal state for this application, not an error.
+            // Estar sin conexión es el estado normal de esta aplicación, no un
+            // error — pero tampoco es evidencia de estar actualizado.
             log.LogInformation(ex, "No se pudo consultar si hay actualizaciones");
-            return UpdateStatus.UpToDate(Current);
+            return UpdateStatus.CouldNotCheck(Current);
         }
     }
 

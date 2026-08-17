@@ -154,9 +154,12 @@ public sealed partial class MainViewModel : ObservableObject
         using var checker = new UpdateChecker(NullLogger<UpdateChecker>.Instance);
         var status = await checker.CheckAsync();
 
-        UpdateStatus = status.Available
-            ? $"Hay una versión nueva: {status.LatestVersion}"
-            : $"Estás al día ({status.CurrentVersion})";
+        UpdateStatus = status.Result switch
+        {
+            UpdateResult.Available => $"Hay una versión nueva: {status.LatestVersion}",
+            UpdateResult.UpToDate  => $"Estás al día ({status.CurrentVersion})",
+            _ => "No se pudo verificar. ¿Estás sin conexión?",
+        };
     }
 
     // ---- Desinstalación ----
