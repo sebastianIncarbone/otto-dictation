@@ -1,0 +1,26 @@
+<Project>
+
+  <PropertyGroup>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <!--
+      Un warning que aparece en cada build deja de leerse a los dos días, y a
+      partir de ahí tapa al que sí importa. Que rompa el build es la única forma
+      de que se arreglen el día que aparecen.
+
+      Si alguna vez una versión nueva del SDK trae warnings ajenos y molesta,
+      apagarlo acá es una línea — pero que sea una decisión, no una costumbre.
+    -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+    <!--
+      Los proyectos que apuntan a net10.0-windows son los que tocan Win32: la
+      plataforma queda declarada en el TFM en vez de suprimida con un atributo.
+      Eso hace que CA1416 marque de verdad cuando algo específico de Windows se
+      cuela en un proyecto que debería ser portable.
+    -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+</Project>

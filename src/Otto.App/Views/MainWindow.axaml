@@ -67,7 +67,7 @@
 
     <!-- Búsqueda -->
     <TextBox DockPanel.Dock="Top" Margin="18,14,18,10"
-             Watermark="Buscar en tus notas…" Text="{Binding Search}" />
+             PlaceholderText="Buscar en tus notas…" Text="{Binding Search}" />
 
     <!-- Vacío -->
     <TextBlock DockPanel.Dock="Top" Margin="18,40,18,0"
@@ -83,7 +83,7 @@
               <StackPanel Spacing="8">
 
                 <Grid ColumnDefinitions="*,Auto">
-                  <TextBox Text="{Binding Title}" Watermark="{Binding Heading}"
+                  <TextBox Text="{Binding Title}" PlaceholderText="{Binding Heading}"
                            BorderThickness="0" Padding="0" FontWeight="SemiBold" />
                   <TextBlock Grid.Column="1" Text="{Binding Subtitle}"
                              FontSize="11" Opacity="0.55" VerticalAlignment="Center" />

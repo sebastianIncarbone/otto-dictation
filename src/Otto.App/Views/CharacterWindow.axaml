@@ -3,7 +3,7 @@
         xmlns:views="using:Otto.App.Views"
         x:Class="Otto.App.Views.CharacterWindow"
         Width="96" Height="96"
-        SystemDecorations="None"
+        WindowDecorations="None"
         Background="Transparent"
         TransparencyLevelHint="Transparent"
         Topmost="True"
