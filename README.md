@@ -163,4 +163,9 @@ Ollama (opcional)
 
 ## Licencia
 
-Pendiente.
+[MIT](LICENSE). Usalo, copialo, modificalo, vendelo — solo mantené el aviso de
+copyright.
+
+Todas las dependencias son MIT también: Whisper.net, Avalonia, NAudio,
+Microsoft.Data.Sqlite, SkiaSharp y CommunityToolkit.Mvvm. El modelo de Whisper no
+viaja en el ZIP; se descarga aparte y OpenAI lo liberó bajo MIT.
