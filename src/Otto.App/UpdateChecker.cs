@@ -27,7 +27,10 @@ public sealed record UpdateStatus(bool Available, string CurrentVersion, string?
 /// </summary>
 public sealed class UpdateChecker : IDisposable
 {
-    private const string LatestReleaseUrl = "https://api.github.com/repos/sebastianincarbone/otto-dictation/releases/latest";
+    /// <summary>Dueño y nombre del repositorio. Un solo lugar para cambiarlo.</summary>
+    public const string Repository = "sebastianIncarbone/otto-dictation";
+
+    private const string LatestReleaseUrl = $"https://api.github.com/repos/{Repository}/releases/latest";
 
     private readonly HttpClient http;
     private readonly ILogger<UpdateChecker> log;
@@ -40,8 +43,17 @@ public sealed class UpdateChecker : IDisposable
         http.DefaultRequestHeaders.UserAgent.ParseAdd($"Otto/{Current}");
     }
 
+    /// <summary>
+    /// Sale de <c>InformationalVersion</c>, no de <c>AssemblyVersion</c>: la
+    /// primera conserva lo que se puso en &lt;Version&gt;, mientras que la segunda
+    /// recorta a cuatro números y pierde cualquier sufijo. .NET le agrega el hash
+    /// de git detrás de un "+", que se descarta acá.
+    /// </summary>
     public static string Current =>
-        Assembly.GetExecutingAssembly().GetName().Version is { } v ? $"{v.Major}.{v.Minor}.{v.Build}" : "0.0.0";
+        Assembly.GetExecutingAssembly()
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+            .Split('+')[0]
+        ?? "0.0.0";
 
     public async Task<UpdateStatus> CheckAsync(CancellationToken cancellationToken = default)
     {
@@ -70,7 +82,7 @@ public sealed class UpdateChecker : IDisposable
     /// than 0.9.0 — the classic way a naive comparison starts lying at the tenth
     /// release and nobody notices for months.
     /// </summary>
-    internal static bool IsNewer(string candidate, string current)
+    public static bool IsNewer(string candidate, string current)
     {
         if (!Version.TryParse(Pad(candidate), out var a)) return false;
         if (!Version.TryParse(Pad(current), out var b)) return false;

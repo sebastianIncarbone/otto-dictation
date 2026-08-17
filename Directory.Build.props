@@ -5,6 +5,18 @@
     <Nullable>enable</Nullable>
 
     <!--
+      La versión vive acá y en ningún otro lado. El CI la pisa desde la etiqueta
+      de git al publicar una release, así que la etiqueta y lo que la aplicación
+      dice de sí misma no pueden divergir.
+
+      Si divergen, el chequeo de actualizaciones miente en silencio: compara la
+      versión del ensamblado contra la última etiqueta, y con la del ensamblado
+      congelada en el 1.0.0 que .NET pone por defecto, "estás al día" es la
+      respuesta para siempre.
+    -->
+    <Version>0.1.0</Version>
+
+    <!--
       Un warning que aparece en cada build deja de leerse a los dos días, y a
       partir de ahí tapa al que sí importa. Que rompa el build es la única forma
       de que se arreglen el día que aparecen.

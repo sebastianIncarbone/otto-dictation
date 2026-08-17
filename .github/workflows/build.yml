@@ -26,9 +26,15 @@ jobs:
 
       # El ZIP se arma en cada push, no solo al etiquetar: un empaquetado que se
       # ejercita una vez por release es un empaquetado que se rompe en silencio.
+      #
+      # Al etiquetar, la version sale de la etiqueta. Si la aplicacion dijera una
+      # version distinta a la publicada, el chequeo de actualizaciones mentiria en
+      # silencio para siempre.
       - name: Empaquetar
         shell: pwsh
-        run: .\build\publicar.ps1
+        run: |
+          $version = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '' }
+          .\build\publicar.ps1 -Version $version
 
       - uses: actions/upload-artifact@v4
         with:

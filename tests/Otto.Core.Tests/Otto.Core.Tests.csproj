@@ -1,7 +1,7 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
@@ -23,6 +23,7 @@
     <ProjectReference Include="..\..\src\Otto.Core\Otto.Core.csproj" />
     <ProjectReference Include="..\..\src\Otto.Storage\Otto.Storage.csproj" />
     <ProjectReference Include="..\..\src\Otto.PostProcessing\Otto.PostProcessing.csproj" />
+    <ProjectReference Include="..\..\src\Otto.App\Otto.App.csproj" />
   </ItemGroup>
 
 </Project>

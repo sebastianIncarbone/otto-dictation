@@ -22,6 +22,7 @@
 param(
     [string]$Configuration = 'Release',
     [string]$Runtime = 'win-x64',
+    [string]$Version = '',
     [string]$OutputDir = "$PSScriptRoot\..\dist"
 )
 
@@ -34,15 +35,27 @@ if (Test-Path $OutputDir) { Remove-Item $OutputDir -Recurse -Force }
 New-Item -ItemType Directory -Force $staging | Out-Null
 
 Write-Host "==> Publicando ($Configuration, $Runtime, autocontenido)"
-dotnet publish "$repo\src\Otto.App" `
-    --configuration $Configuration `
-    --runtime $Runtime `
-    --self-contained true `
-    -p:PublishReadyToRun=true `
-    -p:DebugType=none `
-    -p:DebugSymbols=false `
-    --output $staging `
-    --nologo | Where-Object { $_ -match 'error|warning' }
+
+$publishArgs = @(
+    '--configuration', $Configuration
+    '--runtime', $Runtime
+    '--self-contained', 'true'
+    '-p:PublishReadyToRun=true'
+    '-p:DebugType=none'
+    '-p:DebugSymbols=false'
+    '--output', $staging
+    '--nologo'
+)
+
+# La etiqueta de git manda cuando el CI publica una release. Sin esto, la version
+# del ensamblado queda en la del csproj y el chequeo de actualizaciones compara
+# contra un numero que no corresponde a lo que se subio.
+if ($Version) {
+    Write-Host "    version: $Version"
+    $publishArgs += "-p:Version=$Version"
+}
+
+dotnet publish "$repo\src\Otto.App" @publishArgs | Where-Object { $_ -match 'error|warning' }
 
 if ($LASTEXITCODE -ne 0) { throw "Falló el publish" }
 

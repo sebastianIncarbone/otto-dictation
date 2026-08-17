@@ -145,6 +145,17 @@ dotnet test
 .\build\publicar.ps1    # arma dist\Otto-windows-x64.zip
 ```
 
+### Publicar una versión
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+El CI compila, testea, arma el ZIP y crea la release. **La versión sale de la
+etiqueta**, no del código: si la aplicación dijera una versión distinta a la
+publicada, el chequeo de actualizaciones mentiría en silencio para siempre.
+
 ## Stack
 
 .NET 10 · Avalonia UI · Whisper.net (`large-v3-turbo`, runtime Vulkan) · SQLite ·
