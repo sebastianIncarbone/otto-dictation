@@ -60,8 +60,43 @@
         <CheckBox Content="Arrancar con Windows" IsChecked="{Binding StartWithWindows}" />
         <CheckBox Content="Mostrar el personaje en pantalla" IsChecked="{Binding ShowCharacter}" />
 
+        <!-- Apagado de fábrica: Otto promete funcionar sin internet, así que la
+             única llamada a la red que existe la pide la persona, no la app. -->
+        <CheckBox Content="Avisarme si hay una versión nueva al arrancar"
+                  IsChecked="{Binding CheckForUpdates}" />
+
         <Button Content="Guardar" HorizontalAlignment="Right"
                 Command="{Binding SaveSettingsCommand}" />
+
+        <Separator Margin="0,4" />
+
+        <Grid ColumnDefinitions="Auto,*,Auto">
+          <TextBlock Text="{Binding Version, StringFormat='Versión {0}'}"
+                     FontSize="12" Opacity="0.6" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="1" Text="{Binding UpdateStatus}" Margin="12,0"
+                     FontSize="12" Opacity="0.8" VerticalAlignment="Center" />
+          <Button Grid.Column="2" Content="Buscar actualizaciones"
+                  Command="{Binding CheckUpdatesCommand}" />
+        </Grid>
+
+        <Separator Margin="0,4" />
+
+        <!-- Desinstalar en dos pasos, y el primero dice exactamente qué desaparece:
+             "borrar mis datos" es abstracto, "borrar 340 notas" no. -->
+        <StackPanel Spacing="8">
+          <Button Content="Borrar todos mis datos" HorizontalAlignment="Left"
+                  Command="{Binding ConfirmUninstallCommand}"
+                  IsVisible="{Binding !IsConfirmingUninstall}" />
+
+          <StackPanel Spacing="8" IsVisible="{Binding IsConfirmingUninstall}">
+            <TextBlock Text="{Binding UninstallWarning}" TextWrapping="Wrap"
+                       FontSize="12" Foreground="#E5484A" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button Content="Sí, borrar todo" Command="{Binding UninstallCommand}" />
+              <Button Content="Cancelar" Command="{Binding CancelUninstallCommand}" />
+            </StackPanel>
+          </StackPanel>
+        </StackPanel>
       </StackPanel>
     </Border>
 

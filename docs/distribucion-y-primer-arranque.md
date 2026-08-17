@@ -32,10 +32,15 @@ Si el posicionamiento del producto es *offline*, la afirmación tiene que ser
 literalmente cierta. Entonces:
 
 1. **Sin telemetría. Sin analytics. Sin reportes de error automáticos.** Nada.
-2. **Sin chequeo de actualizaciones en v1.** Un "buscar actualizaciones" al
+2. **El chequeo de actualizaciones no corre solo.** Un "buscar actualizaciones" al
    arrancar es una llamada a un servidor, y convierte "funciona sin internet" en
-   una verdad a medias. Si más adelante se agrega, va apagado por defecto y
-   visible en la configuración.
+   una verdad a medias.
+
+   Resuelto en dos niveles: hay un **botón** en la configuración, siempre
+   disponible, y un **chequeo automático opt-in que viene apagado de fábrica**. Que
+   una persona decida mirar no es lo mismo que la aplicación decida avisar. Quien
+   nunca toque ese checkbox tiene una herramienta que, después de la descarga
+   inicial, jamás abre un socket.
 3. **`localhost` no es "la nube".** Ollama corriendo en la misma máquina es local.
    Vale la pena aclararlo en el README porque la gente ve "HTTP" y asume servidor
    remoto.
@@ -230,13 +235,14 @@ Sirve como criterio de corte del hito 6. Idealmente, probado en una máquina que
 **no** sea la de desarrollo — sin Visual Studio, sin CUDA Toolkit, sin .NET
 instalado.
 
-- [ ] Se descomprime y ejecuta sin instalar .NET
-- [ ] Se descomprime y ejecuta sin instalar el VC++ Redistributable
-- [ ] Arranca en una máquina sin GPU dedicada y recomienda un modelo usable
-- [ ] La descarga del modelo sobrevive a un corte de red
-- [ ] Da un mensaje claro si el micrófono está bloqueado por privacidad de Windows
-- [ ] Funciona con el WiFi apagado después de la primera vez
-- [ ] Funciona sin Ollama instalado
-- [ ] El README advierte sobre SmartScreen **antes** de que aparezca
-- [ ] Hay un link a VirusTotal de la release
-- [ ] Se puede desinstalar sin dejar archivos sueltos
+- [x] Se descomprime y ejecuta sin instalar .NET — publicado autocontenido
+- [x] Se descomprime y ejecuta sin instalar el VC++ Redistributable — las tres DLL van al lado del ejecutable
+- [x] Arranca en una máquina sin GPU dedicada y recomienda un modelo usable — `HardwareProbe` decide antes de descargar
+- [x] La descarga del modelo sobrevive a un corte de red — verificado cortando a los 40 MB y reanudando
+- [x] Da un mensaje claro si el micrófono está bloqueado por privacidad de Windows — bandera `Silent` de WASAPI
+- [x] Funciona con el WiFi apagado después de la primera vez
+- [x] Funciona sin Ollama instalado — se desactiva el post-proceso al arrancar
+- [x] El README advierte sobre SmartScreen **antes** de que aparezca
+- [x] Se puede desinstalar sin dejar archivos sueltos — botón en la configuración
+- [ ] Hay un link a VirusTotal de la release — falta subir la primera
+- [ ] Probado en una máquina que no es la de desarrollo

@@ -1,4 +1,6 @@
+using Microsoft.Extensions.Logging;
 using Otto.Bench;
+using Otto.Speech;
 
 // Milestone 0 harness. Records a fixed set of utterances once, then measures every
 // Whisper variant against those same recordings so a comparison reflects the model
@@ -38,6 +40,10 @@ try
 
         case "voseo":
             await RunVoseoAsync();
+            break;
+
+        case "descarga":
+            await RunDownloadTestAsync();
             break;
 
         case "bench":
@@ -86,6 +92,69 @@ async Task RunBenchAsync()
     await File.WriteAllTextAsync(output, Report.Render(runtime, runtimeInfo, useVad, results, clipsDir));
 
     Console.WriteLine($"Reporte escrito en {Path.GetFullPath(output)}");
+}
+
+// Verifies that an interrupted model download resumes instead of starting over.
+//
+// Worth exercising rather than assuming: it is the user's first contact with Otto,
+// it moves over a gigabyte, and the failure mode — silently restarting from zero —
+// looks identical to working correctly until you watch the byte count.
+async Task RunDownloadTestAsync()
+{
+    var dir = Path.Combine(Path.GetTempPath(), "otto-descarga-test");
+    Directory.CreateDirectory(dir);
+
+    var destination = Path.Combine(dir, "ggml-base.bin");
+    var partial = destination + ".part";
+
+    foreach (var file in Directory.GetFiles(dir)) File.Delete(file);
+
+    using var factory = LoggerFactory.Create(b => b
+        .AddSimpleConsole(o => o.SingleLine = true)
+        .SetMinimumLevel(LogLevel.Information));
+
+    var log = factory.CreateLogger<ModelDownloader>();
+
+    Console.WriteLine("=== intento 1: se corta a los 40 MB ===");
+
+    using (var downloader = new ModelDownloader(log))
+    using (var cancel = new CancellationTokenSource())
+    {
+        var progress = new Progress<DownloadProgress>(p =>
+        {
+            if (p.Downloaded > 40L * 1024 * 1024) cancel.Cancel();
+        });
+
+        try
+        {
+            await downloader.DownloadAsync("ggml-base.bin", destination, progress, cancel.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            Console.WriteLine("  cortado a propósito");
+        }
+    }
+
+    var afterFirst = File.Exists(partial) ? new FileInfo(partial).Length : 0;
+
+    Console.WriteLine($"  parcial en disco : {afterFirst / 1024d / 1024:N1} MB");
+    Console.WriteLine($"  final existe     : {File.Exists(destination)}");
+    Console.WriteLine();
+    Console.WriteLine("=== intento 2: tiene que continuar, no empezar de cero ===");
+
+    using (var downloader = new ModelDownloader(log))
+        await downloader.DownloadAsync("ggml-base.bin", destination, null);
+
+    var final = new FileInfo(destination).Length;
+
+    Console.WriteLine($"  final            : {final / 1024d / 1024:N1} MB");
+    Console.WriteLine($"  .part suelto     : {File.Exists(partial)}");
+    Console.WriteLine();
+    Console.WriteLine(afterFirst > 0 && final > afterFirst && !File.Exists(partial)
+        ? "REANUDACIÓN OK"
+        : "FALLÓ");
+
+    Directory.Delete(dir, recursive: true);
 }
 
 // Milestone 4: which local model can fix the voseo without rewriting the dictation.

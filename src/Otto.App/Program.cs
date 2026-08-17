@@ -1,6 +1,7 @@
 using Avalonia;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Otto.App;
 using Otto.App.ViewModels;
 using Otto.Core;
@@ -25,7 +26,7 @@ var acceleration = HardwareProbe.Detect();
 var (speechModel, speechFile, speechSize) = HardwareProbe.Recommend(acceleration);
 var modelPath = Path.Combine(modelsDir, speechFile);
 
-await EnsureModelsAsync(modelsDir, modelPath, vadPath, speechModel, speechSize);
+await EnsureModelsAsync(modelsDir, modelPath, vadPath, speechFile, speechModel, speechSize);
 
 var settingsStore = new SettingsStore(SettingsStore.DefaultPath);
 var settings = settingsStore.Load();
@@ -83,6 +84,7 @@ services.AddSingleton(sp => new MainViewModel(
     sp.GetRequiredService<DictationPipeline>(),
     sp.GetRequiredService<SettingsStore>(),
     sp.GetRequiredService<Settings>(),
+    databasePath,
     // Resolved lazily: the clipboard belongs to a window, and the view model is
     // built before any window exists.
     () => App.Shell?.Clipboard));
@@ -97,36 +99,37 @@ static AppBuilder BuildAvaloniaApp() => AppBuilder
     .WithInterFont()
     .LogToTrace();
 
-static async Task EnsureModelsAsync(string dir, string modelPath, string vadPath, string model, string size)
+static async Task EnsureModelsAsync(
+    string dir, string modelPath, string vadPath, string fileName, string model, string size)
 {
     Directory.CreateDirectory(dir);
 
     if (File.Exists(modelPath) && File.Exists(vadPath)) return;
 
-    var downloader = WhisperGgmlDownloader.Default;
-
     if (!File.Exists(modelPath))
     {
         Console.WriteLine($"Descargando {model} ({size}), solo la primera vez…");
+        Console.WriteLine("Si se corta, la próxima vez continúa desde donde quedó.");
 
-        var type = model == "base" ? GgmlType.Base : GgmlType.LargeV3Turbo;
-        await SaveAsync(await downloader.GetGgmlModelAsync(type), modelPath);
+        using var downloader = new ModelDownloader(NullLogger<ModelDownloader>.Instance);
+
+        var progress = new Progress<DownloadProgress>(p =>
+            Console.Write($"\r  {p.Fraction:P0}  ({p.BytesPerSecond / 1024 / 1024:N1} MB/s)   "));
+
+        await downloader.DownloadAsync(fileName, modelPath, progress);
+        Console.WriteLine();
     }
 
+    // El VAD pesa un mega: reanudar no aporta nada y el descargador de la
+    // librería ya sabe de dónde traerlo.
     if (!File.Exists(vadPath))
-        await SaveAsync(await downloader.GetGgmlSileroVadModelAsync(SileroVadType.V5_1_2), vadPath);
-
-    // Write to a temporary name first so an interrupted download never leaves a
-    // truncated .bin that fails later in confusing ways — the failure would
-    // surface as a corrupt model at load time, with nothing pointing at the
-    // download that caused it.
-    static async Task SaveAsync(Stream source, string path)
     {
-        var temp = path + ".part";
+        var stream = await WhisperGgmlDownloader.Default.GetGgmlSileroVadModelAsync(SileroVadType.V5_1_2);
+        var temp = vadPath + ".part";
 
         await using (var file = File.Create(temp))
-            await source.CopyToAsync(file);
+            await stream.CopyToAsync(file);
 
-        File.Move(temp, path, overwrite: true);
+        File.Move(temp, vadPath, overwrite: true);
     }
 }

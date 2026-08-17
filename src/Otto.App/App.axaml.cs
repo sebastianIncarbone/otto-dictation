@@ -114,7 +114,10 @@ public partial class App : Application
     {
         if (window is null)
         {
-            window = new MainWindow { DataContext = services.GetRequiredService<MainViewModel>() };
+            var view = services.GetRequiredService<MainViewModel>();
+            view.UninstallRequested += RunUninstall;
+
+            window = new MainWindow { DataContext = view };
 
             // Closing hides instead of destroying: reopening should be instant and
             // keep the scroll position and whatever the user was editing.
@@ -129,6 +132,22 @@ public partial class App : Application
 
         window.Show();
         window.Activate();
+    }
+
+    /// <summary>
+    /// The pipeline is stopped first so the database and the model files are not
+    /// held open while their folders are being removed — otherwise the delete
+    /// half-succeeds and the user is left with exactly the mess they asked to
+    /// avoid.
+    /// </summary>
+    private void RunUninstall()
+    {
+        services.GetRequiredService<DictationPipeline>().Dispose();
+
+        Uninstaller.Run(services.GetRequiredService<ILogger<App>>());
+
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+            desktop.Shutdown();
     }
 
     private void SetUpCharacter()

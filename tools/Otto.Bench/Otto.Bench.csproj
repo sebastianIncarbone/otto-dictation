@@ -8,10 +8,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.11" />
     <PackageReference Include="NAudio" Version="3.0.0" />
     <PackageReference Include="NAudio.Wasapi" Version="3.0.0" />
     <PackageReference Include="Whisper.net" Version="1.9.1" />
     <PackageReference Include="Whisper.net.AllRuntimes" Version="1.9.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Otto.Speech\Otto.Speech.csproj" />
   </ItemGroup>
 
 </Project>

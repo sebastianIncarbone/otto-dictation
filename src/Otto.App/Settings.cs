@@ -31,6 +31,14 @@ public sealed record Settings
 
     public string PostProcessingModel { get; init; } = "qwen2.5:3b";
 
+    /// <summary>
+    /// Apagado de fábrica, y a propósito. Otto promete que funciona sin internet;
+    /// una consulta al arrancar convertiría esa promesa en una verdad a medias.
+    /// El botón de "buscar actualizaciones" está siempre disponible: que la persona
+    /// decida mirar no es lo mismo que la aplicación decida avisar.
+    /// </summary>
+    public bool CheckForUpdates { get; init; }
+
     /// <summary>True when no settings file existed yet, so the window can introduce itself.</summary>
     [JsonIgnore] public bool IsFirstRun { get; init; }
 

@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Avalonia.Input.Platform;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Microsoft.Extensions.Logging.Abstractions;
 using CommunityToolkit.Mvvm.Input;
 using Otto.Core;
 
@@ -14,23 +15,27 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly DictationPipeline pipeline;
     private readonly SettingsStore settingsStore;
     private readonly Func<IClipboard?> clipboard;
+    private readonly string databasePath;
 
     public MainViewModel(
         INoteRepository repository,
         DictationPipeline pipeline,
         SettingsStore settingsStore,
         Settings settings,
+        string databasePath,
         Func<IClipboard?> clipboard)
     {
         this.repository = repository;
         this.pipeline = pipeline;
         this.settingsStore = settingsStore;
         this.clipboard = clipboard;
+        this.databasePath = databasePath;
 
         hotkeyLabel = settings.HotkeyLabel;
         language = settings.Language;
         startWithWindows = settings.StartWithWindows;
         showCharacter = settings.ShowCharacter;
+        checkForUpdates = settings.CheckForUpdates;
 
         pipeline.StateChanged += OnStateChanged;
         pipeline.Saved += OnSaved;
@@ -127,9 +132,64 @@ public sealed partial class MainViewModel : ObservableObject
             Language = Language,
             StartWithWindows = StartWithWindows,
             ShowCharacter = ShowCharacter,
+            CheckForUpdates = CheckForUpdates,
         });
 
         Autostart.Apply(StartWithWindows);
         IsSettingsOpen = false;
     }
+
+    // ---- Actualizaciones ----
+
+    [ObservableProperty] private bool checkForUpdates;
+    [ObservableProperty] private string updateStatus = "";
+
+    public string Version => UpdateChecker.Current;
+
+    [RelayCommand]
+    private async Task CheckUpdatesAsync()
+    {
+        UpdateStatus = "Buscando…";
+
+        using var checker = new UpdateChecker(NullLogger<UpdateChecker>.Instance);
+        var status = await checker.CheckAsync();
+
+        UpdateStatus = status.Available
+            ? $"Hay una versión nueva: {status.LatestVersion}"
+            : $"Estás al día ({status.CurrentVersion})";
+    }
+
+    // ---- Desinstalación ----
+
+    [ObservableProperty] private bool isConfirmingUninstall;
+    [ObservableProperty] private string uninstallWarning = "";
+
+    /// <summary>
+    /// Two steps, not a dialog. The first click states exactly what disappears —
+    /// how many notes, how many megabytes — because "borrar mis datos" is abstract
+    /// and "borrar 340 notas" is not.
+    /// </summary>
+    [RelayCommand]
+    private void ConfirmUninstall()
+    {
+        var (bytes, notes) = Uninstaller.Summarise(databasePath);
+
+        UninstallWarning =
+            $"Se van a borrar {notes} nota(s), la configuración y los modelos descargados " +
+            $"({bytes / 1024d / 1024:N0} MB). No se puede deshacer. Otto se va a cerrar.";
+
+        IsConfirmingUninstall = true;
+    }
+
+    [RelayCommand]
+    private void CancelUninstall()
+    {
+        IsConfirmingUninstall = false;
+        UninstallWarning = "";
+    }
+
+    public event Action? UninstallRequested;
+
+    [RelayCommand]
+    private void Uninstall() => UninstallRequested?.Invoke();
 }
