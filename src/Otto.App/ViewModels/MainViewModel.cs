@@ -123,21 +123,50 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void ToggleSettings() => IsSettingsOpen = !IsSettingsOpen;
 
+    /// <summary>
+    /// Raised when the user changes whether the character should be on screen, so
+    /// whoever owns that window can act on it. The tray menu offers the same
+    /// choice, and the two have to agree.
+    /// </summary>
+    public event Action<bool>? CharacterVisibilityChanged;
+
+    /// <summary>
+    /// Lays this window's fields over the settings as they are on disk.
+    ///
+    /// Amending rather than rebuilding is the whole point. The window does not
+    /// show every setting — the hotkey binding and the model names are not here —
+    /// so constructing a fresh record would quietly reset every one it does not
+    /// know about back to its default, and the tray menu writes to the same file.
+    ///
+    /// Kept separate from <see cref="SaveSettings"/>, and public, because saving
+    /// also touches the registry and the disk; this part is the decision, and a
+    /// decision should be checkable without side effects.
+    /// </summary>
+    public Settings ApplyTo(Settings stored) => stored with
+    {
+        HotkeyLabel = HotkeyLabel,
+        Language = Language,
+        StartWithWindows = StartWithWindows,
+        ShowCharacter = ShowCharacter,
+        CheckForUpdates = CheckForUpdates,
+    };
+
     [RelayCommand]
     private void SaveSettings()
     {
-        settingsStore.Save(new Settings
-        {
-            HotkeyLabel = HotkeyLabel,
-            Language = Language,
-            StartWithWindows = StartWithWindows,
-            ShowCharacter = ShowCharacter,
-            CheckForUpdates = CheckForUpdates,
-        });
+        settingsStore.Save(ApplyTo(settingsStore.Load()));
 
         Autostart.Apply(StartWithWindows);
+        CharacterVisibilityChanged?.Invoke(ShowCharacter);
+
         IsSettingsOpen = false;
     }
+
+    /// <summary>
+    /// Reflects a change made somewhere else — the tray menu — without saving or
+    /// raising anything back, which would bounce between the two owners forever.
+    /// </summary>
+    public void ReflectCharacterVisibility(bool visible) => ShowCharacter = visible;
 
     // ---- Actualizaciones ----
 

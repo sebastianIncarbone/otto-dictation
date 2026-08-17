@@ -16,6 +16,7 @@ public partial class App : Application
     private TrayIcon? tray;
     private MainWindow? window;
     private CharacterWindow? character;
+    private NativeMenuItem? characterItem;
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
@@ -100,6 +101,12 @@ public partial class App : Application
         var open = new NativeMenuItem("Abrir Otto");
         open.Click += (_, _) => ShowWindow();
 
+        // The label says what clicking does, rather than a checkbox saying what
+        // the state is. Tray menus render check marks inconsistently, and an
+        // option whose two states look identical is worse than no option.
+        characterItem = new NativeMenuItem();
+        characterItem.Click += (_, _) => SetCharacterVisible(!CharacterVisible);
+
         var quit = new NativeMenuItem("Salir");
         quit.Click += (_, _) =>
         {
@@ -107,7 +114,9 @@ public partial class App : Application
             desktop.Shutdown();
         };
 
-        return [open, new NativeMenuItemSeparator(), quit];
+        RefreshCharacterItem();
+
+        return [open, characterItem, new NativeMenuItemSeparator(), quit];
     }
 
     private void ShowWindow()
@@ -116,6 +125,10 @@ public partial class App : Application
         {
             var view = services.GetRequiredService<MainViewModel>();
             view.UninstallRequested += RunUninstall;
+
+            // The same switch lives in two places; this is the settings window
+            // telling the tray what the user just chose.
+            view.CharacterVisibilityChanged += visible => SetCharacterVisible(visible, persist: false);
 
             window = new MainWindow { DataContext = view };
 
@@ -135,37 +148,103 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// The pipeline is stopped first so the database and the model files are not
-    /// held open while their folders are being removed — otherwise the delete
-    /// half-succeeds and the user is left with exactly the mess they asked to
-    /// avoid.
+    /// Two distributions, two ways out, and only one of them is Otto's job.
+    ///
+    /// Installed, Windows owns the removal — including asking whether the notes
+    /// and the downloaded models should go — so all Otto does is start it and get
+    /// out of the way. Portable, nothing else is going to clean up after a copied
+    /// folder, so Otto does it itself.
     /// </summary>
     private void RunUninstall()
     {
+        var log = services.GetRequiredService<ILogger<App>>();
+        var installed = Uninstaller.InstalledUninstaller();
+
+        // Launched before anything is torn down: if it cannot start, Otto stays
+        // alive and working rather than shutting down into nothing.
+        if (installed is not null && !Uninstaller.LaunchInstalled(installed, log)) return;
+
+        // The pipeline is stopped before the delete so the database and the model
+        // files are not held open while their folders are being removed —
+        // otherwise the delete half-succeeds and the user is left with exactly
+        // the mess they asked to avoid. The installed path needs it too, because
+        // the uninstaller cannot remove files this process still has open.
         services.GetRequiredService<DictationPipeline>().Dispose();
 
-        Uninstaller.Run(services.GetRequiredService<ILogger<App>>());
+        if (installed is null) Uninstaller.Run(log);
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             desktop.Shutdown();
     }
 
+    private bool CharacterVisible => character?.IsVisible == true;
+
     private void SetUpCharacter()
     {
-        if (!services.GetRequiredService<Settings>().ShowCharacter) return;
+        if (services.GetRequiredService<Settings>().ShowCharacter)
+            SetCharacterVisible(true, persist: false);
+    }
+
+    /// <summary>
+    /// Shows or hides the character, and remembers the choice.
+    ///
+    /// <para>
+    /// The window is built the first time it is actually wanted rather than at
+    /// startup: someone who runs with the character off never pays for it, and
+    /// turning it on later is not a reason to restart.
+    /// </para>
+    /// <para>
+    /// Hiding is <see cref="Window.Hide"/> and not <see cref="Window.Close"/>, so
+    /// the native handle — and with it the click-through and never-focus styles
+    /// applied when it opened — survives being turned off and on again.
+    /// </para>
+    /// </summary>
+    private void SetCharacterVisible(bool visible, bool persist = true)
+    {
+        var log = services.GetRequiredService<ILogger<App>>();
 
         try
         {
-            character = new CharacterWindow(services.GetRequiredService<IOverlayStyler>());
-            character.Follow(services.GetRequiredService<DictationPipeline>());
-            character.Show();
+            if (visible)
+            {
+                if (character is null)
+                {
+                    character = new CharacterWindow(services.GetRequiredService<IOverlayStyler>());
+                    character.Follow(services.GetRequiredService<DictationPipeline>());
+                }
+
+                character.Show();
+            }
+            else
+            {
+                character?.Hide();
+            }
         }
         catch (Exception ex)
         {
             // Personality is not a feature anyone should lose dictation over.
-            services.GetRequiredService<ILogger<App>>()
-                .LogWarning(ex, "No se pudo mostrar el personaje; Otto sigue funcionando igual");
+            character = null;
+            log.LogWarning(ex, "No se pudo mostrar el personaje; Otto sigue funcionando igual");
         }
+
+        RefreshCharacterItem();
+
+        if (!persist) return;
+
+        // Amended rather than rebuilt, so toggling from the tray cannot reset a
+        // setting this menu knows nothing about.
+        var store = services.GetRequiredService<SettingsStore>();
+        store.Save(store.Load() with { ShowCharacter = CharacterVisible });
+
+        // The settings window offers the same switch. If it is already built, its
+        // checkbox has to agree with what the tray just did.
+        services.GetRequiredService<MainViewModel>().ReflectCharacterVisibility(CharacterVisible);
+    }
+
+    private void RefreshCharacterItem()
+    {
+        if (characterItem is not null)
+            characterItem.Header = CharacterVisible ? "Esconder a Otto" : "Mostrar a Otto";
     }
 
     private void StartPipeline()
