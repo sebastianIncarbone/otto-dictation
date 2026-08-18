@@ -3,6 +3,7 @@ using NSubstitute;
 using Otto.App;
 using Otto.App.ViewModels;
 using Otto.Core;
+using Otto.Speech;
 
 namespace Otto.Core.Tests;
 
@@ -31,7 +32,11 @@ public class SettingsTests
             new SettingsStore(Path.Combine(Path.GetTempPath(), "otto-tests-no-escribe.json")),
             settings,
             databasePath: "",
-            clipboard: () => null);
+            clipboard: () => null,
+            provisioningOptions: new ProvisioningOptions
+            {
+                ModelsDirectory = "", SpeechFileName = "", VadFileName = "", Label = "", Size = "",
+            });
     }
 
     [Fact]

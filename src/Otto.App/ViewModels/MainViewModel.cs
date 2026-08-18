@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.Extensions.Logging.Abstractions;
 using CommunityToolkit.Mvvm.Input;
 using Otto.Core;
+using Otto.Speech;
 
 namespace Otto.App.ViewModels;
 
@@ -16,6 +17,7 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly SettingsStore settingsStore;
     private readonly Func<IClipboard?> clipboard;
     private readonly string databasePath;
+    private readonly ProvisioningOptions provisioningOptions;
 
     public MainViewModel(
         INoteRepository repository,
@@ -23,13 +25,15 @@ public sealed partial class MainViewModel : ObservableObject
         SettingsStore settingsStore,
         Settings settings,
         string databasePath,
-        Func<IClipboard?> clipboard)
+        Func<IClipboard?> clipboard,
+        ProvisioningOptions provisioningOptions)
     {
         this.repository = repository;
         this.pipeline = pipeline;
         this.settingsStore = settingsStore;
         this.clipboard = clipboard;
         this.databasePath = databasePath;
+        this.provisioningOptions = provisioningOptions;
 
         hotkeyLabel = settings.HotkeyLabel;
         language = settings.Language;
@@ -231,4 +235,89 @@ public sealed partial class MainViewModel : ObservableObject
 
     [RelayCommand]
     private void Uninstall() => UninstallRequested?.Invoke();
+
+    // ---- Provisioning ----
+
+    /// <summary>
+    /// While true, the window shows the provisioning card instead of the notes
+    /// area — search, the list, and Configuración are all hidden. Stays true
+    /// through <see cref="ProvisioningState.Failed"/> so the Reintentar button has
+    /// somewhere to live; only <see cref="ProvisioningState.Ready"/> turns it off.
+    /// </summary>
+    [ObservableProperty] private bool isProvisioning;
+
+    [ObservableProperty] private string provisioningText = "";
+    [ObservableProperty] private string provisioningDetail = "";
+    [ObservableProperty] private double provisioningPercent;
+    [ObservableProperty] private bool hasProvisioningError;
+    [ObservableProperty] private string provisioningError = "";
+
+    /// <summary>
+    /// The single entry point for every provisioning update. Kept as one method,
+    /// rather than one handler per state, so the Rioplatense copy — and the
+    /// decision about what <see cref="IsProvisioning"/> hides — lives in exactly
+    /// one place.
+    /// </summary>
+    public void Apply(ProvisioningStatus status)
+    {
+        // An explicit case per reported state, rather than the shorter
+        // `IsProvisioning = status.State != Ready`: ModelProvisioner never
+        // reports Idle through this channel today — a cancelled provisioning
+        // exits silently, with no final Report call — but "!= Ready" would
+        // latch the card open on anything unexpected, with no error text and
+        // no Reintentar: an unrecoverable dead end whose only way out is
+        // restarting Otto. Idle and any future state both fall to the default
+        // arm and degrade to "not provisioning" instead.
+        switch (status.State)
+        {
+            case ProvisioningState.DownloadingSpeech:
+                IsProvisioning = true;
+                HasProvisioningError = false;
+                ProvisioningText = $"Descargando {provisioningOptions.Label} ({provisioningOptions.Size}), solo la primera vez…";
+
+                // No byte has moved yet on the first report for this leg — Progress
+                // is null until the first chunk lands — so the reassurance sits
+                // where the rate normally goes instead of showing 0 %.
+                ProvisioningDetail = status.Progress is { } p
+                    ? $"{p.Fraction:P0} · {p.BytesPerSecond / 1024 / 1024:N1} MB/s"
+                    : "Si se corta, la próxima vez continúa desde donde quedó.";
+                ProvisioningPercent = status.Progress?.Fraction ?? 0;
+                break;
+
+            case ProvisioningState.PreparingVad:
+                // A separate, short step — not folded into the speech model's
+                // percentage, because a bar that jumps back to 0 % after reaching
+                // 100 % reads as a bug even when the two legs are unrelated.
+                IsProvisioning = true;
+                HasProvisioningError = false;
+                ProvisioningText = "Preparando el detector de voz…";
+                ProvisioningDetail = "";
+                ProvisioningPercent = 0;
+                break;
+
+            case ProvisioningState.Failed:
+                IsProvisioning = true;
+                HasProvisioningError = true;
+                ProvisioningError =
+                    "No se pudo descargar el modelo. Fijate que tengas internet y probá de nuevo — lo que ya se bajó no se pierde.";
+                break;
+
+            case ProvisioningState.Ready:
+            case ProvisioningState.Idle:
+            default:
+                IsProvisioning = false;
+                HasProvisioningError = false;
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Raised when the user clicks Reintentar on a failed download. Follows the
+    /// same event-not-call pattern as <see cref="UninstallRequested"/>: the view
+    /// model does not own the provisioner, so it asks rather than acts.
+    /// </summary>
+    public event Action? RetryRequested;
+
+    [RelayCommand]
+    private void Retry() => RetryRequested?.Invoke();
 }

@@ -1,7 +1,6 @@
 using Avalonia;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Otto.App;
 using Otto.App.ViewModels;
 using Otto.Core;
@@ -9,7 +8,6 @@ using Otto.Platform.Windows;
 using Otto.Speech;
 using Otto.PostProcessing;
 using Otto.Storage;
-using Whisper.net.Ggml;
 
 // Otto starts minimised to the tray. There is no window until you ask for one.
 
@@ -17,7 +15,6 @@ var dataDir = Path.Combine(
     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Otto");
 
 var modelsDir = Path.Combine(dataDir, "models");
-var vadPath = Path.Combine(modelsDir, "silero-vad.bin");
 var databasePath = Path.Combine(dataDir, "otto.db");
 
 // Which model to download is decided BEFORE downloading it, and depends on
@@ -25,9 +22,15 @@ var databasePath = Path.Combine(dataDir, "otto.db");
 // dictation against 17 s.
 var acceleration = HardwareProbe.Detect();
 var (speechModel, speechFile, speechSize) = HardwareProbe.Recommend(acceleration);
-var modelPath = Path.Combine(modelsDir, speechFile);
 
-await EnsureModelsAsync(modelsDir, modelPath, vadPath, speechFile, speechModel, speechSize);
+var provisioningOptions = new ProvisioningOptions
+{
+    ModelsDirectory = modelsDir,
+    SpeechFileName = speechFile,
+    VadFileName = "silero-vad.bin",
+    Label = speechModel,
+    Size = speechSize,
+};
 
 var settingsStore = new SettingsStore(SettingsStore.DefaultPath);
 var settings = settingsStore.Load();
@@ -45,10 +48,16 @@ services.AddLogging(builder => builder
 services.AddSingleton(settingsStore);
 services.AddSingleton(settings);
 
+services.AddSingleton(provisioningOptions);
+services.AddSingleton<IModelSource, HuggingFaceModelSource>();
+services.AddSingleton<ModelProvisioner>();
+
+// Built from provisioningOptions rather than computed separately, so the
+// transcriber and the downloader can never disagree about where the model is.
 services.AddSingleton(new TranscriberOptions
 {
-    ModelPath = modelPath,
-    VadModelPath = vadPath,
+    ModelPath = provisioningOptions.SpeechPath,
+    VadModelPath = provisioningOptions.VadPath,
     Language = settings.Language,
 });
 
@@ -88,7 +97,8 @@ services.AddSingleton(sp => new MainViewModel(
     databasePath,
     // Resolved lazily: the clipboard belongs to a window, and the view model is
     // built before any window exists.
-    () => App.Shell?.Clipboard));
+    () => App.Shell?.Clipboard,
+    sp.GetRequiredService<ProvisioningOptions>()));
 
 App.Services = services.BuildServiceProvider();
 
@@ -99,38 +109,3 @@ static AppBuilder BuildAvaloniaApp() => AppBuilder
     .UsePlatformDetect()
     .WithInterFont()
     .LogToTrace();
-
-static async Task EnsureModelsAsync(
-    string dir, string modelPath, string vadPath, string fileName, string model, string size)
-{
-    Directory.CreateDirectory(dir);
-
-    if (File.Exists(modelPath) && File.Exists(vadPath)) return;
-
-    if (!File.Exists(modelPath))
-    {
-        Console.WriteLine($"Descargando {model} ({size}), solo la primera vez…");
-        Console.WriteLine("Si se corta, la próxima vez continúa desde donde quedó.");
-
-        using var downloader = new ModelDownloader(NullLogger<ModelDownloader>.Instance);
-
-        var progress = new Progress<DownloadProgress>(p =>
-            Console.Write($"\r  {p.Fraction:P0}  ({p.BytesPerSecond / 1024 / 1024:N1} MB/s)   "));
-
-        await downloader.DownloadAsync(fileName, modelPath, progress);
-        Console.WriteLine();
-    }
-
-    // The VAD model is a megabyte: resuming buys nothing, and the library's own
-    // downloader already knows where to fetch it from.
-    if (!File.Exists(vadPath))
-    {
-        var stream = await WhisperGgmlDownloader.Default.GetGgmlSileroVadModelAsync(SileroVadType.V5_1_2);
-        var temp = vadPath + ".part";
-
-        await using (var file = File.Create(temp))
-            await stream.CopyToAsync(file);
-
-        File.Move(temp, vadPath, overwrite: true);
-    }
-}
