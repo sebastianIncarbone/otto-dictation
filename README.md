@@ -87,8 +87,15 @@ sí.** Reinstalar te devuelve todo tal cual, sin volver a bajar 1,6 GB.
 > firmado con un certificado de código, que cuesta varios cientos de dólares por
 > año. Hacé clic en **Más información** → **Ejecutar de todas formas**.
 >
-> Es razonable que desconfíes. Por eso el código es público, cada release tiene su
-> análisis de VirusTotal, y todo lo que hace se puede leer.
+> Es razonable que desconfíes. Por eso el código es público, todo lo que hace se
+> puede leer, y **cada release publica su análisis de VirusTotal junto al SHA-256
+> del archivo** — así podés comprobar que el análisis corresponde exactamente al
+> binario que bajaste, y no a otro. Están en las notas de cada release.
+>
+> Algunos motores lo van a marcar, y no es un error: Otto registra un atajo global
+> y sintetiza pulsaciones de teclado, que es funcionalmente la descripción de un
+> keylogger. Preferimos publicar el análisis con esas marcas a la vista antes que
+> pedirte que confíes.
 
 ## Uso
 

@@ -105,9 +105,21 @@ heurística lo va a marcar en algunas máquinas.
 
 - El modo de hotkey por defecto usa sondeo, no `WH_KEYBOARD_LL` (ver ADR §5.2). El
   hook de bajo nivel, que es lo que más llama la atención, queda como opción.
-- Subir cada release a VirusTotal y **publicar el link en el README**. Transparencia
-  proactiva: "sé que esto parece sospechoso, acá está el análisis, acá está el
-  código fuente".
+- **Publicar el análisis de VirusTotal de cada release.** Transparencia proactiva:
+  "sé que esto parece sospechoso, acá está el análisis, acá está el código fuente".
+
+  Resuelto sin depender de que nadie se acuerde. El link no va al README —ahí
+  quedaría viejo en la release siguiente— sino a las notas de cada release, y lo
+  arma el CI a partir del SHA-256 del artefacto, que es cómo VirusTotal direcciona
+  sus informes. Si el archivo todavía no fue analizado, esa misma URL es donde se
+  lo sube.
+
+  El hash se publica al lado del link, y eso no es decoración: sin él, el análisis
+  podría ser de cualquier otro archivo y no habría forma de saberlo.
+
+  **El informe no va a salir limpio, y se publica igual.** Otto registra un atajo
+  global y sintetiza pulsaciones de teclado; algunos motores heurísticos lo van a
+  marcar. Publicar solo cuando da 0 detecciones sería marketing, no transparencia.
 - Que el código sea abierto es, literalmente, la respuesta a esta objeción.
 
 ### Trampa 4 — La promesa de latencia depende del hardware ajeno
@@ -336,5 +348,5 @@ instalado.
 - [x] Funciona sin Ollama instalado — se desactiva el post-proceso al arrancar
 - [x] El README advierte sobre SmartScreen **antes** de que aparezca
 - [x] Se puede desinstalar sin dejar archivos sueltos — botón en la configuración
-- [ ] Hay un link a VirusTotal de la release — falta subir la primera
+- [x] Hay un link a VirusTotal de la release — lo arma el CI desde el SHA-256, junto al hash
 - [ ] Probado en una máquina que no es la de desarrollo

@@ -64,34 +64,80 @@ jobs:
         with:
           name: Otto-windows-x64
 
+      # Las notas se arman acá y no en el bloque `body` de la accion porque los
+      # hashes tienen que salir de los archivos que se estan publicando. Un hash
+      # escrito a mano es un hash que en algun momento deja de corresponder al
+      # binario, y nadie lo nota porque nadie lo verifica.
+      #
+      # El link de VirusTotal se arma con el sha256, que es como VirusTotal
+      # direcciona los informes. Si el archivo todavia no fue analizado, esa misma
+      # URL es donde se lo sube: el link sirve igual y nunca queda pendiente de
+      # que alguien se acuerde de pegarlo.
+      - name: Armar las notas con los hashes
+        run: |
+          SETUP=$(sha256sum Otto-Setup.exe | cut -d' ' -f1)
+          ZIP=$(sha256sum Otto-windows-x64.zip | cut -d' ' -f1)
+
+          cat > notas.md <<'PLANTILLA'
+          ## Instalación
+
+          Bajá **`Otto-Setup.exe`** y ejecutalo. No pide administrador, y te deja
+          elegir el acceso directo en el menú Inicio y en el escritorio. Se
+          desinstala desde *Agregar o quitar programas*, como cualquier otro
+          programa.
+
+          No hace falta instalar .NET ni nada más.
+
+          <details>
+          <summary>¿Preferís no instalar nada?</summary>
+
+          `Otto-windows-x64.zip` es la misma aplicación en versión portable:
+          descomprimila donde quieras y ejecutá `Otto.App.exe`. Sirve para un
+          pendrive o para una máquina donde no podés instalar programas. La
+          desinstalación en ese caso la hace Otto desde su configuración.
+          </details>
+
+          Windows va a mostrar una advertencia de SmartScreen porque el ejecutable
+          no está firmado: **Más información** → **Ejecutar de todas formas**.
+
+          La primera vez baja el modelo de voz. Después funciona sin internet.
+
+          ## Verificación
+
+          El ejecutable no está firmado, así que acá está el análisis y el hash para
+          que puedas comprobar que ese análisis es del archivo que bajaste y no de
+          otro.
+
+          **Análisis de VirusTotal:**
+          [`Otto-Setup.exe`](https://www.virustotal.com/gui/file/__SETUP__) ·
+          [`Otto-windows-x64.zip`](https://www.virustotal.com/gui/file/__ZIP__)
+
+          Algunos motores lo van a marcar. No es un error: Otto registra un atajo
+          global y sintetiza pulsaciones de teclado, que es funcionalmente la
+          descripción de un keylogger. Está publicado con esas marcas a la vista a
+          propósito — el código es abierto y se puede leer entero.
+
+          ```
+          SHA-256
+
+          __SETUP__  Otto-Setup.exe
+          __ZIP__  Otto-windows-x64.zip
+          ```
+
+          Para comprobarlo en Windows:
+
+          ```powershell
+          Get-FileHash Otto-Setup.exe -Algorithm SHA256
+          ```
+          PLANTILLA
+
+          sed -i "s/__SETUP__/$SETUP/g; s/__ZIP__/$ZIP/g" notas.md
+          cat notas.md
+
       - name: Publicar release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             Otto-Setup.exe
             Otto-windows-x64.zip
-          body: |
-            ## Instalación
-
-            Bajá **`Otto-Setup.exe`** y ejecutalo. No pide administrador, y te deja
-            elegir el acceso directo en el menú Inicio y en el escritorio. Se
-            desinstala desde *Agregar o quitar programas*, como cualquier otro
-            programa.
-
-            No hace falta instalar .NET ni nada más.
-
-            <details>
-            <summary>¿Preferís no instalar nada?</summary>
-
-            `Otto-windows-x64.zip` es la misma aplicación en versión portable:
-            descomprimila donde quieras y ejecutá `Otto.App.exe`. Sirve para un
-            pendrive o para una máquina donde no podés instalar programas. La
-            desinstalación en ese caso la hace Otto desde su configuración.
-            </details>
-
-            Windows va a mostrar una advertencia de SmartScreen porque el
-            ejecutable no está firmado: **Más información** → **Ejecutar de todas
-            formas**. Subilo a [VirusTotal](https://www.virustotal.com) si querés
-            verificarlo antes.
-
-            La primera vez baja el modelo de voz. Después funciona sin internet.
+          body_path: notas.md
