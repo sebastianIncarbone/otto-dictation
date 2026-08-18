@@ -25,7 +25,7 @@ public sealed class ModelProvisioner(ProvisioningOptions options, IModelSource s
     /// <summary>
     /// Never throws. Returns <see cref="ProvisioningState.Ready"/> only once both
     /// files are verified on disk — that post-condition is what
-    /// <c>App.StartPipeline()</c> trusts before loading them.
+    /// <c>App.StartPipelineAsync()</c> trusts before loading them.
     /// </summary>
     public async Task<ProvisioningState> ProvisionAsync(
         IProgress<ProvisioningStatus>? progress, CancellationToken cancellationToken = default)

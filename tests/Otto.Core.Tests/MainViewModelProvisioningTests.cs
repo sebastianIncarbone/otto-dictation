@@ -19,29 +19,36 @@ namespace Otto.Core.Tests;
 /// </summary>
 public class MainViewModelProvisioningTests
 {
-    private static MainViewModel Build() => new(
-        Substitute.For<INoteRepository>(),
-        new DictationPipeline(
-            Substitute.For<IHotkeyService>(),
-            Substitute.For<IAudioCapture>(),
-            Substitute.For<ITranscriber>(),
-            Substitute.For<ITextInjector>(),
-            Substitute.For<IForegroundWindow>(),
+    private static MainViewModel Build()
+    {
+        var availability = Substitute.For<IHotkeyAvailability>();
+        availability.IsAvailable(Arg.Any<HotkeyBinding>()).Returns(true);
+
+        return new(
             Substitute.For<INoteRepository>(),
-            new NullPostProcessor(),
-            NullLogger<DictationPipeline>.Instance),
-        new SettingsStore(Path.Combine(Path.GetTempPath(), "otto-tests-no-escribe.json")),
-        new Settings(),
-        databasePath: "",
-        clipboard: () => null,
-        provisioningOptions: new ProvisioningOptions
-        {
-            ModelsDirectory = "",
-            SpeechFileName = "",
-            VadFileName = "",
-            Label = "large-v3-turbo",
-            Size = "~1,6 GB",
-        });
+            new DictationPipeline(
+                Substitute.For<IHotkeyService>(),
+                Substitute.For<IAudioCapture>(),
+                Substitute.For<ITranscriber>(),
+                Substitute.For<ITextInjector>(),
+                Substitute.For<IForegroundWindow>(),
+                Substitute.For<INoteRepository>(),
+                new NullPostProcessor(),
+                NullLogger<DictationPipeline>.Instance),
+            new SettingsStore(Path.Combine(Path.GetTempPath(), "otto-tests-no-escribe.json")),
+            new Settings(),
+            databasePath: "",
+            clipboard: () => null,
+            provisioningOptions: new ProvisioningOptions
+            {
+                ModelsDirectory = "",
+                SpeechFileName = "",
+                VadFileName = "",
+                Label = "large-v3-turbo",
+                Size = "~1,6 GB",
+            },
+            availability);
+    }
 
     [Fact]
     public void Descargando_el_habla_sin_progreso_muestra_el_mensaje_de_tranquilidad()

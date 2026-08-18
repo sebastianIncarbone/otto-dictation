@@ -64,6 +64,7 @@ services.AddSingleton(new TranscriberOptions
 services.AddSingleton<IPromptProvider>(new ContextPromptProvider());
 services.AddSingleton<ITranscriber, WhisperTranscriber>();
 services.AddSingleton<IHotkeyService, PollingHotkeyService>();
+services.AddSingleton<IHotkeyAvailability, HotkeyAvailabilityProbe>();
 services.AddSingleton<ITextInjector, ClipboardTextInjector>();
 services.AddSingleton<IForegroundWindow, ForegroundWindowInspector>();
 services.AddSingleton<IOverlayStyler, OverlayStyler>();
@@ -98,7 +99,8 @@ services.AddSingleton(sp => new MainViewModel(
     // Resolved lazily: the clipboard belongs to a window, and the view model is
     // built before any window exists.
     () => App.Shell?.Clipboard,
-    sp.GetRequiredService<ProvisioningOptions>()));
+    sp.GetRequiredService<ProvisioningOptions>(),
+    sp.GetRequiredService<IHotkeyAvailability>()));
 
 App.Services = services.BuildServiceProvider();
 

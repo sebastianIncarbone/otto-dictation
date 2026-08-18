@@ -12,9 +12,13 @@ namespace Otto.App;
 /// </summary>
 public sealed record Settings
 {
-    public HotkeyModifiers Modifiers { get; init; } = HotkeyModifiers.Control | HotkeyModifiers.Alt;
-    public uint VirtualKey { get; init; } = 0x20;               // Espacio
-    public string HotkeyLabel { get; init; } = "Ctrl+Alt+Espacio";
+    // Derived from HotkeyBinding.Default rather than hardcoded in parallel with it: a
+    // literal "Ctrl+Alt+Espacio" sitting next to Modifiers/VirtualKey is exactly the
+    // shape of the bug this change closes — two sources of truth that only look
+    // consistent because nobody has changed one of them yet.
+    public HotkeyModifiers Modifiers { get; init; } = HotkeyBinding.Default.Modifiers;
+    public uint VirtualKey { get; init; } = HotkeyBinding.Default.VirtualKey;
+    public string HotkeyLabel { get; init; } = HotkeyLabels.For(HotkeyBinding.Default);
 
     public string Language { get; init; } = "es";
     public string Model { get; init; } = "large-v3-turbo";
