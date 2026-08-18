@@ -291,13 +291,22 @@ public class HotkeyCaptureTests
         // Otto owns pipeline.RegisteredHotkey already, so probing that exact
         // binding would report a false conflict against itself. Asserting the
         // probe is never called — not just that the capture succeeds — is what
-        // would actually catch a regression to comparing against the stored
-        // setting instead, since a probe stubbed to always return true would let
-        // that mistake pass silently.
+        // actually catches a regression to comparing against the stored setting
+        // instead, since a probe stubbed to always return true would let that
+        // mistake pass silently.
+        //
+        // `stored` is deliberately a DIFFERENT binding from `registered`. With
+        // both equal to HotkeyBinding.Default (the old fixture), a regression to
+        // comparing against the stored setting would still pass this test, since
+        // candidate, registered and stored would all be the same value — the
+        // DidNotReceive assertion would hold either way. Here, a regression to
+        // the stored comparison would find candidate (Ctrl+Alt+Espacio) != stored
+        // (Alt+Shift+K), so the probe WOULD be called and the test would fail.
         var availability = Substitute.For<IHotkeyAvailability>();
         availability.IsAvailable(Arg.Any<HotkeyBinding>()).Returns(true);
+        var stored = new Settings { Modifiers = HotkeyModifiers.Alt | HotkeyModifiers.Shift, VirtualKey = 0x4B };
 
-        var view = await BuildAsync(HotkeyBinding.Default, availability: availability);
+        var view = await BuildAsync(HotkeyBinding.Default, stored, availability);
         view.IsCapturingHotkey = true;
 
         view.OfferKey(HotkeyModifiers.Control | HotkeyModifiers.Alt, 0x20); // same as HotkeyBinding.Default
@@ -305,5 +314,99 @@ public class HotkeyCaptureTests
         Assert.False(view.IsCapturingHotkey);
         Assert.Equal(HotkeyLabels.For(HotkeyBinding.Default), view.HotkeyLabel);
         availability.DidNotReceive().IsAvailable(Arg.Any<HotkeyBinding>());
+    }
+
+    [Fact]
+    public async Task Mientras_el_pipeline_todavia_carga_el_atajo_de_arranque_no_se_prueba()
+    {
+        // RegisteredHotkey is null for the whole model-load window, before
+        // StartAsync has even attempted Register — and startupHotkey is exactly
+        // the binding it is about to register. Probing it here would race Otto's
+        // own pending registration and could make Otto blame "another
+        // application" for a collision it caused itself, so self-conflict widens
+        // to startupHotkey while still loading. HasHotkeyAlert is false here
+        // because no registration has been attempted yet, which is what tells
+        // this case apart from a real failure (next test).
+        var availability = Substitute.For<IHotkeyAvailability>();
+        availability.IsAvailable(Arg.Any<HotkeyBinding>()).Returns(true);
+
+        var pipeline = new DictationPipeline(
+            Substitute.For<IHotkeyService>(),
+            Substitute.For<IAudioCapture>(),
+            Substitute.For<ITranscriber>(),
+            Substitute.For<ITextInjector>(),
+            Substitute.For<IForegroundWindow>(),
+            Substitute.For<INoteRepository>(),
+            new NullPostProcessor(),
+            NullLogger<DictationPipeline>.Instance);
+
+        var view = new MainViewModel(
+            Substitute.For<INoteRepository>(),
+            pipeline,
+            new SettingsStore(Path.Combine(Path.GetTempPath(), "otto-tests-no-escribe.json")),
+            new Settings(), // default binding == HotkeyBinding.Default == startupHotkey here
+            databasePath: "",
+            clipboard: () => null,
+            provisioningOptions: new ProvisioningOptions
+            {
+                ModelsDirectory = "", SpeechFileName = "", VadFileName = "", Label = "", Size = "",
+            },
+            availability);
+
+        Assert.Null(pipeline.RegisteredHotkey);
+        Assert.False(view.HasHotkeyAlert);
+        view.IsCapturingHotkey = true;
+
+        view.OfferKey(HotkeyModifiers.Control | HotkeyModifiers.Alt, 0x20); // same as HotkeyBinding.Default
+
+        Assert.False(view.IsCapturingHotkey);
+        availability.DidNotReceive().IsAvailable(Arg.Any<HotkeyBinding>());
+    }
+
+    [Fact]
+    public async Task Despues_de_un_fallo_de_registro_el_mismo_atajo_si_se_prueba()
+    {
+        // RegisteredHotkey is null here too, but for a different reason: Register
+        // was actually attempted and failed. startupHotkey is precisely the
+        // binding that just failed, so skipping the probe for it here — the same
+        // rule that is correct while still loading — would hide a real conflict
+        // from the user at exactly the moment they need to see it. HasHotkeyAlert
+        // is what tells the two null cases apart.
+        var availability = Substitute.For<IHotkeyAvailability>();
+        availability.IsAvailable(Arg.Any<HotkeyBinding>()).Returns(true);
+
+        var pipeline = new DictationPipeline(
+            Substitute.For<IHotkeyService>(),
+            Substitute.For<IAudioCapture>(),
+            Substitute.For<ITranscriber>(),
+            Substitute.For<ITextInjector>(),
+            Substitute.For<IForegroundWindow>(),
+            Substitute.For<INoteRepository>(),
+            new NullPostProcessor(),
+            NullLogger<DictationPipeline>.Instance);
+
+        var view = new MainViewModel(
+            Substitute.For<INoteRepository>(),
+            pipeline,
+            new SettingsStore(Path.Combine(Path.GetTempPath(), "otto-tests-no-escribe.json")),
+            new Settings(), // default binding == HotkeyBinding.Default == startupHotkey here
+            databasePath: "",
+            clipboard: () => null,
+            provisioningOptions: new ProvisioningOptions
+            {
+                ModelsDirectory = "", SpeechFileName = "", VadFileName = "", Label = "", Size = "",
+            },
+            availability);
+
+        view.ShowHotkeyFailure(alreadyInUse: true); // what App's catch does after a failed Register
+
+        Assert.Null(pipeline.RegisteredHotkey);
+        Assert.True(view.HasHotkeyAlert);
+        view.IsCapturingHotkey = true;
+
+        view.OfferKey(HotkeyModifiers.Control | HotkeyModifiers.Alt, 0x20); // same as HotkeyBinding.Default, the binding that just failed
+
+        Assert.False(view.IsCapturingHotkey);
+        availability.Received(1).IsAvailable(Arg.Any<HotkeyBinding>());
     }
 }

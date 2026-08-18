@@ -350,7 +350,23 @@ public sealed partial class MainViewModel : ObservableObject
         // registration, exactly when the probe most needs to tell the truth.
         // Refused outright rather than committed with a warning: a combination
         // another app already holds will fail at Otto's next launch regardless.
-        if (candidate != pipeline.RegisteredHotkey && !hotkeyAvailability.IsAvailable(candidate))
+        //
+        // RegisteredHotkey is also null for the whole model-load window, before
+        // StartAsync has attempted Register at all — and startupHotkey is exactly
+        // the binding it is about to register. Probing that here would race
+        // Otto's own pending registration: if the two RegisterHotKey calls land
+        // close together, one of them loses and Otto reports "another
+        // application" for a collision it caused itself. So self-conflict is
+        // widened to startupHotkey too, but ONLY while still loading — HasHotkeyAlert
+        // is what tells that window apart from a real registration failure, where
+        // RegisteredHotkey is null for a different reason and startupHotkey is
+        // precisely the binding that just failed. Skipping the probe there would
+        // hide a real conflict from the user at the exact moment they need to see
+        // it, which is why the fallback never applies once an alert is showing.
+        var stillLoading = pipeline.RegisteredHotkey is null && !HasHotkeyAlert;
+        var isSelfConflict = candidate == pipeline.RegisteredHotkey || (stillLoading && candidate == startupHotkey);
+
+        if (!isSelfConflict && !hotkeyAvailability.IsAvailable(candidate))
         {
             HotkeyHint = $"{HotkeyLabels.For(candidate)} ya lo está usando otra aplicación. Probá otra combinación.";
             return;

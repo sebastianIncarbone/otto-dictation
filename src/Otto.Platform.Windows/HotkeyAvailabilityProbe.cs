@@ -18,25 +18,62 @@ public sealed class HotkeyAvailabilityProbe : IHotkeyAvailability
     // Distinct from PollingHotkeyService.HotkeyId (1) so the two can never
     // collide even by coincidence while reading either file on its own.
     private const int ProbeHotkeyId = 2;
-    private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(2);
+
+    // RegisterHotKey/PeekMessage/UnregisterHotKey are plain synchronous syscalls
+    // with no I/O — the whole round trip normally completes in well under a
+    // millisecond. 2 seconds was a UI freeze waiting to happen: IsAvailable is
+    // called synchronously from OfferKey on the Avalonia UI thread, so that
+    // budget only ever gets spent when something is already wrong, and it froze
+    // the settings window with no feedback for the whole 2 seconds. A short
+    // timeout is safe specifically because the port's contract already answers
+    // "available" whenever it cannot tell — timing out early only costs an
+    // occasional false "available" (a warning the user never sees because the
+    // combination was fine), never a wrong refusal.
+    private static readonly TimeSpan ProbeTimeout = TimeSpan.FromMilliseconds(200);
 
     public bool IsAvailable(HotkeyBinding binding)
     {
-        // Starts true so a probe that never finishes in time is optimistic by
-        // construction — it must never block a binding it genuinely cannot vouch for.
+        // Starts true so a probe that never finishes in time — or fails for any
+        // reason at all — is optimistic by construction: the port's own contract
+        // is to answer "available" whenever it genuinely cannot tell, and a
+        // crash would satisfy neither branch of that obligation.
         var available = true;
 
-        var thread = new Thread(() => Probe(binding, out available))
+        try
         {
-            IsBackground = true,
-            Name = "Otto.HotkeyProbe",
-        };
+            var thread = new Thread(() =>
+            {
+                try
+                {
+                    Probe(binding, out available);
+                }
+                catch (Exception)
+                {
+                    // Guards the native calls themselves: an exception escaping
+                    // this delegate on a background thread with no handler would
+                    // take the whole process down, which is strictly worse than
+                    // the wrong-but-safe "available" answer this falls back to.
+                    available = true;
+                }
+            })
+            {
+                IsBackground = true,
+                Name = "Otto.HotkeyProbe",
+            };
 
-        // RegisterHotKey/UnregisterHotKey are scoped to the calling thread's own
-        // message queue, so both have to run on this one dedicated thread.
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        thread.Join(ProbeTimeout);
+            // RegisterHotKey/UnregisterHotKey are scoped to the calling thread's
+            // own message queue, so both have to run on this one dedicated thread.
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.Start();
+            thread.Join(ProbeTimeout);
+        }
+        catch (Exception)
+        {
+            // Same obligation, covering the thread-start path too: a failure to
+            // even spin up the probe thread (e.g. Thread.Start throwing) must
+            // fall back to optimistic, not propagate out of IsAvailable.
+            available = true;
+        }
 
         return available;
     }
