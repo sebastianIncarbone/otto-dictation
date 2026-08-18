@@ -18,6 +18,7 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly Func<IClipboard?> clipboard;
     private readonly string databasePath;
     private readonly ProvisioningOptions provisioningOptions;
+    private readonly IHotkeyAvailability hotkeyAvailability;
 
     /// <summary>Fallback <see cref="ListeningLabel"/> reads while <c>pipeline.RegisteredHotkey</c> is still null (Loading).</summary>
     private readonly HotkeyBinding startupHotkey;
@@ -36,7 +37,8 @@ public sealed partial class MainViewModel : ObservableObject
         Settings settings,
         string databasePath,
         Func<IClipboard?> clipboard,
-        ProvisioningOptions provisioningOptions)
+        ProvisioningOptions provisioningOptions,
+        IHotkeyAvailability hotkeyAvailability)
     {
         this.repository = repository;
         this.pipeline = pipeline;
@@ -44,6 +46,7 @@ public sealed partial class MainViewModel : ObservableObject
         this.clipboard = clipboard;
         this.databasePath = databasePath;
         this.provisioningOptions = provisioningOptions;
+        this.hotkeyAvailability = hotkeyAvailability;
 
         startupHotkey = settings.ToBinding();
         savedHotkey = startupHotkey;
@@ -149,7 +152,19 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(HotkeyChangePending));
     }
 
-    partial void OnSearchChanged(string value) => _ = ReloadAsync();
+    /// <summary>
+    /// <see cref="EmptyMessage"/> reads <see cref="Search"/> directly, but nothing
+    /// generated for <see cref="Search"/> notifies it. Raising it here — rather
+    /// than relying only on <see cref="Refresh"/> at the tail of the fire-and-forget
+    /// <see cref="ReloadAsync"/> — keeps it accurate even when the repository call
+    /// inside <see cref="ReloadAsync"/> throws and <see cref="Refresh"/> is never
+    /// reached, which used to leave the slot showing the previous search's text.
+    /// </summary>
+    partial void OnSearchChanged(string value)
+    {
+        OnPropertyChanged(nameof(EmptyMessage));
+        _ = ReloadAsync();
+    }
 
     public async Task ReloadAsync()
     {
@@ -294,8 +309,8 @@ public sealed partial class MainViewModel : ObservableObject
     /// <paramref name="virtualKey"/> == 0 (no Win32 code) → hint, stay open; the key is
     /// itself a modifier → live hint, stay open; no modifier held → refuse (a bare
     /// global key like "A" would steal that letter everywhere, including inside this
-    /// capture UI); anything left over commits. The conflict probe against another
-    /// application is Slice 3 (<c>IHotkeyAvailability</c>) — this slice commits directly.
+    /// capture UI); anything left over is probed against <see cref="IHotkeyAvailability"/>
+    /// and refused if another application already owns it, then commits.
     /// </summary>
     public void OfferKey(HotkeyModifiers modifiers, uint virtualKey)
     {
@@ -327,7 +342,21 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
 
-        Captured = new HotkeyBinding(modifiers, virtualKey);
+        var candidate = new HotkeyBinding(modifiers, virtualKey);
+
+        // Compared against what Otto actually registered at startup, never the
+        // stored setting — that would be accidentally right only because the DI
+        // Settings singleton is never refreshed, and wrong after a failed
+        // registration, exactly when the probe most needs to tell the truth.
+        // Refused outright rather than committed with a warning: a combination
+        // another app already holds will fail at Otto's next launch regardless.
+        if (candidate != pipeline.RegisteredHotkey && !hotkeyAvailability.IsAvailable(candidate))
+        {
+            HotkeyHint = $"{HotkeyLabels.For(candidate)} ya lo está usando otra aplicación. Probá otra combinación.";
+            return;
+        }
+
+        Captured = candidate;
         IsCapturingHotkey = false;
         HotkeyHint = "";
     }

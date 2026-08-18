@@ -25,7 +25,15 @@ public class HotkeyCaptureTests
     /// allowed to differ: identical values here would let a header that ignored
     /// <c>RegisteredHotkey</c> pass anyway.
     /// </summary>
-    private static async Task<MainViewModel> BuildAsync(HotkeyBinding registered, Settings? stored = null)
+    /// <param name="availability">
+    /// Defaults to reporting every binding available. NSubstitute returns <c>false</c>
+    /// for an unconfigured <c>bool</c> member, so leaving this unconfigured by default
+    /// would make every capture test in this file report a phantom conflict.
+    /// </param>
+    private static async Task<MainViewModel> BuildAsync(
+        HotkeyBinding registered,
+        Settings? stored = null,
+        IHotkeyAvailability? availability = null)
     {
         var pipeline = new DictationPipeline(
             Substitute.For<IHotkeyService>(),
@@ -39,6 +47,8 @@ public class HotkeyCaptureTests
 
         await pipeline.StartAsync(registered);
 
+        var probe = availability ?? AlwaysAvailable();
+
         return new MainViewModel(
             Substitute.For<INoteRepository>(),
             pipeline,
@@ -49,7 +59,15 @@ public class HotkeyCaptureTests
             provisioningOptions: new ProvisioningOptions
             {
                 ModelsDirectory = "", SpeechFileName = "", VadFileName = "", Label = "", Size = "",
-            });
+            },
+            probe);
+    }
+
+    private static IHotkeyAvailability AlwaysAvailable()
+    {
+        var availability = Substitute.For<IHotkeyAvailability>();
+        availability.IsAvailable(Arg.Any<HotkeyBinding>()).Returns(true);
+        return availability;
     }
 
     [Fact]
@@ -243,9 +261,49 @@ public class HotkeyCaptureTests
             provisioningOptions: new ProvisioningOptions
             {
                 ModelsDirectory = "", SpeechFileName = "", VadFileName = "", Label = "", Size = "",
-            });
+            },
+            AlwaysAvailable());
 
         Assert.Null(pipeline.RegisteredHotkey);
         Assert.False(view.HotkeyChangePending);
+    }
+
+    [Fact]
+    public async Task Una_combinacion_en_uso_por_otra_app_se_rechaza_y_no_committea()
+    {
+        var availability = Substitute.For<IHotkeyAvailability>();
+        availability.IsAvailable(Arg.Any<HotkeyBinding>()).Returns(false);
+
+        var view = await BuildAsync(HotkeyBinding.Default, availability: availability);
+        view.IsCapturingHotkey = true;
+        var etiquetaAntes = view.HotkeyLabel;
+
+        view.OfferKey(HotkeyModifiers.Alt | HotkeyModifiers.Shift, 0x4B); // Alt+Shift+K, owned elsewhere
+
+        Assert.True(view.IsCapturingHotkey);
+        Assert.Equal(etiquetaAntes, view.HotkeyLabel);
+        Assert.Contains("ya lo está usando", view.HotkeyHint);
+    }
+
+    [Fact]
+    public async Task Capturar_el_atajo_ya_registrado_por_Otto_no_se_marca_como_conflicto_consigo_mismo()
+    {
+        // Otto owns pipeline.RegisteredHotkey already, so probing that exact
+        // binding would report a false conflict against itself. Asserting the
+        // probe is never called — not just that the capture succeeds — is what
+        // would actually catch a regression to comparing against the stored
+        // setting instead, since a probe stubbed to always return true would let
+        // that mistake pass silently.
+        var availability = Substitute.For<IHotkeyAvailability>();
+        availability.IsAvailable(Arg.Any<HotkeyBinding>()).Returns(true);
+
+        var view = await BuildAsync(HotkeyBinding.Default, availability: availability);
+        view.IsCapturingHotkey = true;
+
+        view.OfferKey(HotkeyModifiers.Control | HotkeyModifiers.Alt, 0x20); // same as HotkeyBinding.Default
+
+        Assert.False(view.IsCapturingHotkey);
+        Assert.Equal(HotkeyLabels.For(HotkeyBinding.Default), view.HotkeyLabel);
+        availability.DidNotReceive().IsAvailable(Arg.Any<HotkeyBinding>());
     }
 }
