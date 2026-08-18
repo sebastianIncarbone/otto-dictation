@@ -1,0 +1,229 @@
+<p align="center">
+  <img src="docs/banner.png" alt="Otto — Grumpy Imp" width="100%">
+</p>
+
+<p align="center">
+  <b>Offline Transcription, Totally Open</b><br>
+  Mantenés una tecla, hablás, la soltás, y el texto aparece donde estabas escribiendo — en cualquier programa.
+</p>
+
+<p align="center">
+  <a href="https://github.com/sebastianIncarbone/otto-dictation/actions/workflows/build.yml"><img src="https://github.com/sebastianIncarbone/otto-dictation/actions/workflows/build.yml/badge.svg" alt="build"></a>
+  <a href="https://github.com/sebastianIncarbone/otto-dictation/releases/latest"><img src="https://img.shields.io/github/v/release/sebastianIncarbone/otto-dictation" alt="release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT"></a>
+  <img src="https://img.shields.io/badge/plataforma-Windows%2010%2B-lightgrey" alt="Windows 10+">
+</p>
+
+<p align="center">
+  <a href="README.md">🇬🇧 Read in English</a>
+</p>
+
+---
+
+La transcripción es 100% local: tu voz no sale de tu computadora.
+
+> **La prueba: desenchufá internet y Otto sigue funcionando.**
+
+> **Sobre este archivo.** Es una traducción de cortesía del
+> [README en inglés](README.md), que es la fuente de verdad. Si alguna vez dicen
+> cosas distintas, el que vale es el otro. La documentación técnica en `docs/` y las
+> issues también están en inglés; la interfaz de Otto sí está en español, y es a
+> propósito.
+
+## Por qué existe
+
+El dictado de Windows tiene precisión insuficiente en español, sobre todo con
+terminología técnica y frases que mezclan español e inglés. Las alternativas
+comerciales lo resuelven, pero con suscripción y mandando tu audio a servidores de
+terceros.
+
+Otto no manda nada a ningún lado. La única conexión de red en toda su vida es la
+descarga del modelo la primera vez.
+
+## Qué hace
+
+- **Dicta en cualquier programa.** Editor, navegador, chat, terminal. Donde tengas
+  el cursor.
+- **Corrige al rioplatense.** Escribe `Instalá` y `corré`, no `Instala` y `corre`.
+  Opcional, con un modelo local.
+- **Guarda todo.** Cada dictado queda como nota editable, con título, búsqueda y
+  copiado de un clic. Dictar y guardar son la misma acción.
+- **Vive en la bandeja**, con un personaje animado que muestra qué está haciendo.
+
+<p align="center">
+  <img src="docs/poses.png" alt="Los estados de Otto" width="100%">
+</p>
+
+## Rendimiento medido
+
+En una RTX 4060 Laptop, con `large-v3-turbo` sobre Vulkan:
+
+| | |
+|---|---:|
+| Transcripción | 0,57 s |
+| Corrección al rioplatense | 0,33 s |
+| Inserción del texto | 0,13 s |
+| **Total, de soltar la tecla a ver el texto** | **1,02 s** |
+
+**La latencia no depende de cuánto dictes.** `whisper.cpp` procesa en una ventana
+fija de 30 segundos, así que una frase y un párrafo cuestan lo mismo:
+
+| Audio dictado | Transcripción |
+|---:|---:|
+| 4 s | 0,45 s |
+| 12 s | 0,53 s |
+| 30 s | 0,56 s |
+
+Sin GPU la historia es otra — entre 17 y 37 veces más lento — por eso Otto detecta
+el hardware al arrancar y baja un modelo más chico si hace falta.
+
+Todos los números y cómo se obtuvieron: [hito 0](docs/hito-0-resultados.md),
+[hito 0.5](docs/hito-0-5-resultados.md), [hito 4](docs/hito-4-resultados.md).
+
+## Instalación
+
+Bajá **`Otto-Setup.exe`** de [la última release](https://github.com/sebastianIncarbone/otto-dictation/releases/latest)
+(~50 MB) y ejecutalo.
+
+No pide administrador: Otto se instala para tu usuario, en
+`%LOCALAPPDATA%\Programs\Otto`. El instalador te deja elegir si querés el acceso
+directo en el menú Inicio y en el escritorio, y deja la entrada correspondiente en
+*Agregar o quitar programas*. **No hace falta instalar .NET ni nada más.**
+
+La primera vez baja el modelo de voz (~1,6 GB con GPU, ~150 MB sin ella) y abre la
+ventana. Después arranca directo en la bandeja.
+
+<details>
+<summary><b>¿Preferís no instalar nada?</b></summary>
+
+`Otto-windows-x64.zip` (~78 MB) es la misma aplicación en versión portable:
+descomprimila donde quieras y ejecutá `Otto.App.exe`. Sirve para un pendrive o para
+una máquina donde no podés instalar programas.
+
+La diferencia está en cómo se saca: la versión instalada se desinstala desde
+*Agregar o quitar programas*; la portable la limpia Otto desde su propia
+configuración, y la carpeta la borrás vos.
+</details>
+
+Al desinstalar, **tus notas y el modelo descargado no se borran salvo que digas que
+sí.** Reinstalar te devuelve todo tal cual, sin volver a bajar 1,6 GB.
+
+> **Windows te va a mostrar una advertencia azul de SmartScreen.** Otto no está
+> firmado con un certificado de código, que cuesta varios cientos de dólares por
+> año. Hacé clic en **Más información** → **Ejecutar de todas formas**.
+>
+> Es razonable que desconfíes. Por eso el código es público, todo lo que hace se
+> puede leer, y **cada release publica su análisis de VirusTotal junto al SHA-256
+> del archivo** — así podés comprobar que el análisis corresponde exactamente al
+> binario que bajaste, y no a otro. Están en las notas de cada release.
+>
+> Algunos motores lo van a marcar, y no es un error: Otto registra un atajo global
+> y sintetiza pulsaciones de teclado, que es funcionalmente la descripción de un
+> keylogger. Preferimos publicar el análisis con esas marcas a la vista antes que
+> pedirte que confíes.
+
+## Uso
+
+Mantené **Ctrl+Alt+Espacio**, hablá, soltá. El texto aparece donde estaba el cursor.
+
+Abrí la ventana desde la bandeja para ver tus notas, buscarlas, editarlas o
+cambiar la configuración.
+
+## Corrección al rioplatense (opcional)
+
+Whisper neutraliza el voseo: donde decís *"instalá"* escribe *"instala"*. Si tenés
+[Ollama](https://ollama.com) instalado, Otto lo corrige:
+
+```bash
+ollama pull qwen2.5:3b
+```
+
+Otto lo detecta solo al arrancar. **Si no lo tenés, funciona igual** con la salida
+cruda de Whisper.
+
+El [hito 4](docs/hito-4-resultados.md) cuenta por qué esto no puede ser una tabla
+de reemplazos y por qué el prompt importó más que el modelo.
+
+## Limitaciones conocidas
+
+- **Solo Windows.** Linux está fuera de la v1 por una razón concreta: Wayland
+  bloquea por diseño tres de las cinco primitivas que Otto necesita.
+  [El detalle](docs/adr/0001-stack-tecnologico.md). macOS está fuera de forma
+  permanente — no hay hardware para mantenerlo.
+- **Algunos antivirus lo van a marcar.** Otto registra un atajo global y sintetiza
+  pulsaciones de teclado, que es funcionalmente la descripción de un keylogger. El
+  modo por defecto no instala ningún hook de sistema, justamente por eso.
+- **Terminales elevadas rechazan la inserción.** Un proceso sin privilegios no
+  puede escribir en una ventana que sí los tiene.
+- **La calidad del micrófono importa más que el modelo.**
+
+## Documentación
+
+La documentación técnica está en inglés.
+
+| | |
+|---|---|
+| [Visión de producto](docs/vision-producto.md) | Qué es, para qué sirve, qué no es |
+| [ADR 0001 — Stack tecnológico](docs/adr/0001-stack-tecnologico.md) | Qué se eligió, qué se descartó y por qué |
+| [Hito 0 — Latencia y precisión](docs/hito-0-resultados.md) | La compuerta de viabilidad |
+| [Hito 0.5 — `initial_prompt`](docs/hito-0-5-resultados.md) | Vocabulario técnico |
+| [Hito 4 — Corrección de voseo](docs/hito-4-resultados.md) | Por qué el prompt importó más que el modelo |
+| [Distribución y primer arranque](docs/distribucion-y-primer-arranque.md) | Las siete trampas para que lo use otra persona |
+| [Otto.Bench](tools/Otto.Bench/README.md) | La herramienta de medición |
+
+## Arquitectura
+
+```
+Otto.Core              Puertos y orquestación. Sin código de sistema operativo.
+Otto.Speech            Whisper.net: transcripción, VAD, prompt por contexto
+Otto.Storage           SQLite con FTS5: notas y búsqueda
+Otto.PostProcessing    Modelo local por HTTP: corrección al rioplatense
+Otto.Platform.Windows  P/Invoke: atajo global, inyección, portapapeles, overlay
+Otto.App               Avalonia: bandeja, ventana de notas, personaje
+```
+
+`Otto.Core` no conoce Windows. Esa frontera **la hace cumplir el compilador**: los
+proyectos portables apuntan a `net10.0` y los que tocan Win32 a `net10.0-windows`,
+así que un P/Invoke en el núcleo no compila.
+
+El pipeline completo se testea sin micrófono, sin GPU y sin ventana en foco. Si eso
+no fuera posible, la separación sería decoración.
+
+## Compilar
+
+```bash
+dotnet build                        # requiere .NET 10 SDK
+dotnet test
+.\build\publicar.ps1                # arma dist\Otto-Setup.exe y dist\Otto-windows-x64.zip
+.\build\publicar.ps1 -NoInstaller   # solo el ZIP portable
+```
+
+El instalador necesita Inno Setup (`winget install JRSoftware.InnoSetup`). Si falta,
+`publicar.ps1` corta con un error en vez de saltearlo: una release que sale sin
+instalador porque el paso se salteó en silencio no la nota nadie hasta que alguien
+pregunta dónde está el archivo.
+
+### Publicar una versión
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+El CI compila, testea, arma los dos artefactos y crea la release. **La versión sale
+de la etiqueta**, no del código: si la aplicación dijera una versión distinta a la
+publicada, el chequeo de actualizaciones mentiría en silencio para siempre.
+
+## Stack
+
+.NET 10 · Avalonia UI · Whisper.net (`large-v3-turbo`, runtime Vulkan) · SQLite ·
+Ollama (opcional)
+
+## Licencia
+
+[MIT](LICENSE). Usalo, copialo, modificalo, vendelo — solo mantené el aviso de
+copyright.
+
+Todas las dependencias son MIT también: Whisper.net, Avalonia, NAudio,
+Microsoft.Data.Sqlite, SkiaSharp y CommunityToolkit.Mvvm. El modelo de Whisper no
+viaja en el ZIP; se descarga aparte y OpenAI lo liberó bajo MIT.
