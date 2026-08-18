@@ -29,8 +29,42 @@ public interface IHotkeyService : IDisposable
     event Action? Pressed;
     event Action? Released;
 
+    /// <summary>
+    /// Registers <paramref name="binding"/> with the OS.
+    ///
+    /// <para>
+    /// Obligation on the adapter: this MUST throw <see cref="HotkeyRegistrationException"/>
+    /// — never swallow the failure and never leave the service silently unregistered —
+    /// when the underlying registration call fails, whether because another
+    /// application already holds the combination or for any other reason the OS
+    /// refuses it. Before this obligation existed, a taken combination meant Otto ran
+    /// with a tray icon and a window and no hotkey, with nothing telling the user why;
+    /// that silence is the defect class this exception exists to close. The caller —
+    /// <c>Otto.App</c>, not <see cref="Otto.Core.DictationPipeline"/>, which keeps
+    /// swallowing everything else by design — is the only layer with a window to
+    /// surface it through.
+    /// </para>
+    /// </summary>
     void Register(HotkeyBinding binding);
     void Unregister();
+}
+
+/// <summary>
+/// Thrown by an <see cref="IHotkeyService.Register"/> adapter when the OS refuses the
+/// registration. <see cref="AlreadyInUse"/> distinguishes the one cause the user can
+/// actually act on — pick a different combination — from every other reason
+/// (a reserved system combination, for instance), which is just as visible but not
+/// actionable the same way.
+/// </summary>
+public sealed class HotkeyRegistrationException(HotkeyBinding binding, bool alreadyInUse)
+    : Exception(alreadyInUse
+        ? $"The combination {binding.Modifiers}+0x{binding.VirtualKey:X2} is already in use by another application."
+        : $"Could not register the hotkey {binding.Modifiers}+0x{binding.VirtualKey:X2}.")
+{
+    public HotkeyBinding Binding { get; } = binding;
+
+    /// <summary>True for Win32 error 1409 (ERROR_HOTKEY_ALREADY_REGISTERED).</summary>
+    public bool AlreadyInUse { get; } = alreadyInUse;
 }
 
 public sealed record HotkeyBinding(HotkeyModifiers Modifiers, uint VirtualKey)
@@ -46,6 +80,22 @@ public enum HotkeyModifiers
     Control = 2,
     Shift = 4,
     Windows = 8,
+}
+
+/// <summary>
+/// Tells whether a binding is free to register — at capture time, before the user
+/// saves it — by actually attempting the registration rather than consulting a
+/// hardcoded reserved-key list; Windows is the only authority on what another
+/// application already holds. Two obligations on the adapter are load-bearing: it
+/// MUST release whatever it took in a <c>finally</c> before returning (a leaked
+/// registration would make Otto itself the app holding the combination it was
+/// only supposed to be testing), and it MUST return <c>true</c> — available —
+/// when it cannot tell, e.g. on a timeout (guessing "taken" on its own failure
+/// would block a perfectly good binding for a reason unrelated to the binding).
+/// </summary>
+public interface IHotkeyAvailability
+{
+    bool IsAvailable(HotkeyBinding binding);
 }
 
 public interface IAudioCapture : IDisposable

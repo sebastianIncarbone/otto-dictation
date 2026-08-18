@@ -106,7 +106,7 @@ public partial class App : Application
     /// <summary>
     /// The tray tooltip is the only feedback left once the window is closed mid-
     /// download. <see cref="ProvisioningState.Ready"/> is deliberately not handled
-    /// here: <see cref="StartPipeline"/> is about to run
+    /// here: <see cref="StartPipelineAsync"/> is about to run
     /// <see cref="DictationPipeline.StartAsync"/>, whose own <c>StateChanged</c>
     /// handler (in <see cref="BuildTray"/>) takes the tooltip back over from here.
     /// </summary>
@@ -133,7 +133,7 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// The one call site for <see cref="StartPipeline"/>. Expressed as a single
+    /// The one call site for <see cref="StartPipelineAsync"/>. Expressed as a single
     /// <c>await</c>-sequenced method rather than a callback so the ordering —
     /// provisioning finishes, then and only then the pipeline starts — cannot be
     /// interleaved by accident. <see cref="DictationPipeline"/> swallows exceptions
@@ -142,6 +142,12 @@ public partial class App : Application
     /// </summary>
     private async Task ProvisionThenStartAsync(bool needsProvisioning, IProgress<ProvisioningStatus>? progress)
     {
+        // Resolved before the try, not inside a catch: if this resolution itself threw,
+        // the catch would throw too and the exception would go right back to being
+        // unobserved by the caller, which discards this Task — the exact failure mode
+        // the try/catch below exists to close.
+        var logger = services.GetRequiredService<ILogger<App>>();
+
         // The caller discards this Task, so nothing observes what escapes here. Before
         // provisioning moved out of Program.cs, StartPipeline() was called directly and
         // a throw from it — Autostart.RepairIfMoved() reads the registry, which can fail
@@ -154,19 +160,41 @@ public partial class App : Application
         {
             if (!needsProvisioning)
             {
-                StartPipeline();
+                await StartPipelineAsync();
                 return;
             }
 
             var provisioner = services.GetRequiredService<ModelProvisioner>();
             var result = await provisioner.ProvisionAsync(progress, shutdown.Token);
 
-            if (result == ProvisioningState.Ready) StartPipeline();
+            if (result == ProvisioningState.Ready) await StartPipelineAsync();
+        }
+        catch (HotkeyRegistrationException ex)
+        {
+            // The one failure this whole change exists to remove was invisible: a tray
+            // icon, a window, and no hotkey, with nothing telling the user why. Caught
+            // here — not inside DictationPipeline, which keeps swallowing everything
+            // else by design, and not inside the adapter, which already knows the cause
+            // but has no UI to speak through — and only here can StartAsync's failure
+            // finally be awaited for real, instead of a fire-and-forget call whose
+            // exception nobody was ever going to see.
+            logger.LogError(ex,
+                "Hotkey registration failed at startup: {Modifiers}+0x{Key:X2}, already in use: {AlreadyInUse}",
+                ex.Binding.Modifiers, ex.Binding.VirtualKey, ex.AlreadyInUse);
+
+            // A tray-only user would otherwise see nothing at all — the window is the
+            // only proof anything is wrong, and the only place Configuración lives.
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                services.GetRequiredService<MainViewModel>().ShowHotkeyFailure(ex.AlreadyInUse);
+                ShowWindow();
+
+                if (tray is not null) tray.ToolTipText = "Otto — no se pudo activar el atajo";
+            });
         }
         catch (Exception ex)
         {
-            services.GetRequiredService<ILogger<App>>()
-                .LogError(ex, "Startup sequencing failed; Otto is running without a registered hotkey");
+            logger.LogError(ex, "Startup sequencing failed; Otto is running without a registered hotkey");
         }
     }
 
@@ -377,13 +405,18 @@ public partial class App : Application
             characterItem.Header = CharacterVisible ? "Esconder a Otto" : "Mostrar a Otto";
     }
 
-    private void StartPipeline()
+    /// <summary>
+    /// Awaited now, not fired-and-forgotten: a registration failure has to reach
+    /// <see cref="ProvisionThenStartAsync"/>'s try/catch, and a discarded Task would
+    /// have taken the exception down with it instead.
+    /// </summary>
+    private async Task StartPipelineAsync()
     {
         var pipeline = services.GetRequiredService<DictationPipeline>();
         var settings = services.GetRequiredService<Settings>();
 
         Autostart.RepairIfMoved();
 
-        _ = pipeline.StartAsync(settings.ToBinding());
+        await pipeline.StartAsync(settings.ToBinding());
     }
 }

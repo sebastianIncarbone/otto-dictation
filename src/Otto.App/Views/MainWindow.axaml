@@ -32,7 +32,12 @@
       <Grid ColumnDefinitions="*,Auto">
         <StackPanel Spacing="2">
           <TextBlock Text="Otto" FontSize="20" FontWeight="SemiBold" />
-          <TextBlock Text="{Binding StatusText}" FontSize="12" Opacity="0.7" />
+          <!-- Envuelve porque este renglón dejó de ser sólo "Listo · Ctrl+Alt+Espacio".
+               Cuando el atajo no se pudo registrar, acá va la explicación completa, y
+               sin esto se cortaba justo en la parte que dice qué hacer al respecto:
+               un aviso que no entra en la pantalla no avisa nada. -->
+          <TextBlock Text="{Binding StatusText}" FontSize="12" Opacity="0.7"
+                     TextWrapping="Wrap" />
 
           <!-- El aviso de reinicio vive acá, en el encabezado, y no adentro de la
                tarjeta de configuración: guardar cierra esa tarjeta, así que el aviso
