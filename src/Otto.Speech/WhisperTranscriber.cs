@@ -55,7 +55,7 @@ public sealed class WhisperTranscriber : ITranscriber
         vadFactory = WhisperVadFactory.FromPath(options.VadModelPath);
         vad = vadFactory.CreateBuilder().Build();
 
-        log.LogInformation("Whisper listo — runtime {Runtime}", WhisperFactory.GetRuntimeInfo());
+        log.LogInformation("Whisper ready — runtime {Runtime}", WhisperFactory.GetRuntimeInfo());
 
         await WarmUpAsync(cancellationToken);
     }
@@ -80,7 +80,7 @@ public sealed class WhisperTranscriber : ITranscriber
 
         await foreach (var _ in processor.ProcessAsync(quiet, cancellationToken)) { }
 
-        log.LogInformation("Calentamiento en {Seconds:F1} s", watch.Elapsed.TotalSeconds);
+        log.LogInformation("Warm-up in {Seconds:F1} s", watch.Elapsed.TotalSeconds);
     }
 
     public async Task<string> TranscribeAsync(
@@ -88,7 +88,7 @@ public sealed class WhisperTranscriber : ITranscriber
         DictationContext context,
         CancellationToken cancellationToken = default)
     {
-        if (factory is null || vad is null) throw new InvalidOperationException("Llamá a LoadAsync primero.");
+        if (factory is null || vad is null) throw new InvalidOperationException("Call LoadAsync first.");
         if (audio.IsEmpty) return string.Empty;
 
         // The model is a single native resource; concurrent dictations would
@@ -100,7 +100,7 @@ public sealed class WhisperTranscriber : ITranscriber
             var speech = Trim(audio.Samples);
             if (speech.Length == 0)
             {
-                log.LogDebug("El VAD no encontró voz; no se invoca el modelo");
+                log.LogDebug("The VAD found no speech; the model is not invoked");
                 return string.Empty;
             }
 

@@ -11,7 +11,7 @@ using Otto.PostProcessing;
 using Otto.Storage;
 using Whisper.net.Ggml;
 
-// Otto arranca minimizado en la bandeja. No hay ventana hasta que la pedís.
+// Otto starts minimised to the tray. There is no window until you ask for one.
 
 var dataDir = Path.Combine(
     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Otto");
@@ -20,8 +20,9 @@ var modelsDir = Path.Combine(dataDir, "models");
 var vadPath = Path.Combine(modelsDir, "silero-vad.bin");
 var databasePath = Path.Combine(dataDir, "otto.db");
 
-// Qué modelo bajar se decide ANTES de bajarlo, y depende de si esta máquina
-// tiene GPU: son 1,6 GB contra 150 MB, y 0,7 s por dictado contra 17 s.
+// Which model to download is decided BEFORE downloading it, and depends on
+// whether this machine has a GPU: 1.6 GB against 150 MB, and 0.7 s per
+// dictation against 17 s.
 var acceleration = HardwareProbe.Detect();
 var (speechModel, speechFile, speechSize) = HardwareProbe.Recommend(acceleration);
 var modelPath = Path.Combine(modelsDir, speechFile);
@@ -58,8 +59,8 @@ services.AddSingleton<ITextInjector, ClipboardTextInjector>();
 services.AddSingleton<IForegroundWindow, ForegroundWindowInspector>();
 services.AddSingleton<IOverlayStyler, OverlayStyler>();
 
-// El post-procesamiento es opcional: si no hay un modelo local escuchando, Otto
-// funciona igual con la salida cruda de Whisper.
+// Post-processing is optional: with no local model listening, Otto works just
+// the same on Whisper's raw output.
 services.AddSingleton(new PostProcessingOptions { Model = settings.PostProcessingModel });
 services.AddSingleton<IPostProcessor>(sp => settings.CorrectVoseo
     ? new OllamaPostProcessor(
@@ -70,8 +71,8 @@ services.AddSingleton<INoteRepository>(sp =>
     new SqliteNoteRepository(databasePath, sp.GetRequiredService<ILogger<SqliteNoteRepository>>()));
 services.AddSingleton<DictationPipeline>();
 
-// --selftest <archivo.wav> sustituye el micrófono por una grabación, para poder
-// verificar el pipeline sin depender de que alguien hable en el momento justo.
+// --selftest <file.wav> swaps the microphone for a recording, so the pipeline
+// can be exercised without depending on somebody speaking at the right moment.
 var selfTestClip = args.SkipWhile(a => a != "--selftest").Skip(1).FirstOrDefault();
 
 if (selfTestClip is not null)
@@ -120,8 +121,8 @@ static async Task EnsureModelsAsync(
         Console.WriteLine();
     }
 
-    // El VAD pesa un mega: reanudar no aporta nada y el descargador de la
-    // librería ya sabe de dónde traerlo.
+    // The VAD model is a megabyte: resuming buys nothing, and the library's own
+    // downloader already knows where to fetch it from.
     if (!File.Exists(vadPath))
     {
         var stream = await WhisperGgmlDownloader.Default.GetGgmlSileroVadModelAsync(SileroVadType.V5_1_2);

@@ -57,7 +57,7 @@ public sealed class ModelDownloader : IDisposable
         var already = File.Exists(partial) ? new FileInfo(partial).Length : 0;
 
         if (already > 0)
-            log.LogInformation("Reanudando descarga de {File} desde {Mb:N0} MB", fileName, already / 1024d / 1024);
+            log.LogInformation("Resuming download of {File} from {Mb:N0} MB", fileName, already / 1024d / 1024);
 
         using var request = new HttpRequestMessage(HttpMethod.Get, BaseUrl + fileName);
         if (already > 0) request.Headers.Range = new RangeHeaderValue(already, null);
@@ -68,7 +68,7 @@ public sealed class ModelDownloader : IDisposable
         // to append would corrupt it, so start over instead.
         if (already > 0 && response.StatusCode != HttpStatusCode.PartialContent)
         {
-            log.LogWarning("El servidor no admite reanudar; se descarga de nuevo desde cero");
+            log.LogWarning("The server does not support resuming; downloading again from scratch");
             File.Delete(partial);
             already = 0;
         }
@@ -88,8 +88,8 @@ public sealed class ModelDownloader : IDisposable
 
         if (total > 0 && finalSize != total)
             throw new IOException(
-                $"La descarga de {fileName} quedó incompleta: {finalSize:N0} de {total:N0} bytes. " +
-                "El archivo parcial queda en disco, así que reintentar continúa desde ahí.");
+                $"The download of {fileName} is incomplete: {finalSize:N0} of {total:N0} bytes. " +
+                "The partial file stays on disk, so retrying continues from there.");
 
         File.Move(partial, destination, overwrite: true);
         log.LogInformation("{File} listo ({Mb:N0} MB)", fileName, finalSize / 1024d / 1024);

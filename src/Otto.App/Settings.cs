@@ -32,10 +32,10 @@ public sealed record Settings
     public string PostProcessingModel { get; init; } = "qwen2.5:3b";
 
     /// <summary>
-    /// Apagado de fábrica, y a propósito. Otto promete que funciona sin internet;
-    /// una consulta al arrancar convertiría esa promesa en una verdad a medias.
-    /// El botón de "buscar actualizaciones" está siempre disponible: que la persona
-    /// decida mirar no es lo mismo que la aplicación decida avisar.
+    /// Off out of the box, deliberately. Otto promises to work without internet;
+    /// a request at startup would turn that promise into a half-truth. The "check
+    /// for updates" button is always there: a person deciding to look is not the
+    /// same as the application deciding to tell them.
     /// </summary>
     public bool CheckForUpdates { get; init; }
 

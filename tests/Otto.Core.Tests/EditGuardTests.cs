@@ -70,15 +70,15 @@ public class EditGuardTests
     [Fact]
     public void El_acento_cuenta_como_cambio()
     {
-        // Si el guardián normalizara los acentos sería ciego justo a lo que cuida:
-        // el voseo se marca con la tilde.
+        // If the guard normalised accents away it would be blind to the very thing
+        // it protects: voseo is marked by exactly that accent.
         Assert.Equal(1, EditGuard.WordsTouched("corre el build", "corré el build"));
     }
 
     [Fact]
     public void Una_frase_corta_tiene_margen_minimo()
     {
-        // Con el 20% a secas, una frase de tres palabras no podría cambiar ninguna.
+        // With a flat 20%, a three-word sentence could not change a single word.
         Assert.True(EditGuard.IsSafe("instala el paquete", "instalá el paquete"));
     }
 }

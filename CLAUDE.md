@@ -172,10 +172,19 @@ at the point of enforcement — read the surrounding comment before overriding o
 ## Conventions
 
 - **`TreatWarningsAsErrors` is on** solution-wide. Fix warnings; don't suppress them.
-- **Language split:** identifiers, XML doc comments and code comments in English; strings
-  the user sees, log messages, and `docs/` in Rioplatense Spanish. Test method names are
-  Spanish snake_case sentences describing behaviour
-  (`Guarda_la_nota_despues_de_inyectar_y_no_antes`).
+- **Language split.** The repository is public and English-facing; the *product* is not.
+  - **English:** identifiers, every comment, log and exception messages, `docs/`,
+    `README.md`, commit messages, issues.
+  - **Rioplatense Spanish:** everything a user of the app reads — window text, tray menu,
+    first-run console output, the installer wizard. Otto exists because Windows dictation
+    is bad at Rioplatense; an English UI would contradict the product. Do not "fix" these.
+  - `README.es.md` is a courtesy translation and says so; `README.md` is the source of
+    truth. If they disagree, English wins.
+  - `tools/Otto.Bench` keeps Spanish console output *and* Spanish test clips. Those clips
+    **are** the Rioplatense corpus being measured — translating them destroys the harness.
+  - Test method names stay Spanish snake_case sentences
+    (`Guarda_la_nota_despues_de_inyectar_y_no_antes`). They read as sentences, no outside
+    reader sees them, and renaming 36 of them is churn.
 - **Comments explain *why*, at length, where a decision is non-obvious or was measured.**
   This is the dominant style of the codebase — match it rather than stripping it.
 - **Schema changes are new numbered files** in `src/Otto.Storage/Migrations/`, embedded as

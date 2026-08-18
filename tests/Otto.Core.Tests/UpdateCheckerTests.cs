@@ -3,9 +3,9 @@ using Otto.App;
 namespace Otto.Core.Tests;
 
 /// <summary>
-/// Comparar versiones como texto es la forma clásica de que un chequeo de
-/// actualizaciones empiece a mentir en la décima release y nadie se entere por
-/// meses. Estos tests existen para que eso no pase en silencio.
+/// Comparing versions as strings is the classic way an update check starts lying
+/// at the tenth release and nobody notices for months. These tests exist so that
+/// cannot happen quietly.
 /// </summary>
 public class UpdateCheckerTests
 {
@@ -19,8 +19,8 @@ public class UpdateCheckerTests
     [Fact]
     public void Diez_es_mayor_que_nueve()
     {
-        // Como texto, "0.10.0" < "0.9.0". Este es EL caso que rompe la comparación
-        // ingenua, y no aparece hasta la décima release.
+        // As strings, "0.10.0" < "0.9.0". This is THE case that breaks the naive
+        // comparison, and it does not show up until the tenth release.
         Assert.True(UpdateChecker.IsNewer("0.10.0", "0.9.0"));
         Assert.False(UpdateChecker.IsNewer("0.9.0", "0.10.0"));
     }
@@ -50,8 +50,8 @@ public class UpdateCheckerTests
     [Fact]
     public void La_version_del_ensamblado_no_es_la_de_fabrica()
     {
-        // Si esto vuelve a ser 1.0.0, es que <Version> se perdió del csproj y el
-        // chequeo de actualizaciones va a decir "estás al día" para siempre.
+        // If this goes back to 1.0.0, <Version> was lost from the build and the
+        // update check will answer "you are up to date" forever.
         Assert.NotEqual("1.0.0", UpdateChecker.Current);
     }
 }

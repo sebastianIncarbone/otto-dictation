@@ -12,12 +12,12 @@ public sealed record UpdateStatus(UpdateResult Result, string CurrentVersion, st
     public static UpdateStatus UpToDate(string current) => new(UpdateResult.UpToDate, current, current, null);
 
     /// <summary>
-    /// Distinto de "estás al día", y a propósito.
+    /// Distinct from "you are up to date", deliberately.
     ///
-    /// No poder averiguarlo — sin red, repositorio privado, GitHub caído — no es
-    /// lo mismo que saber que no hay nada nuevo. Devolver lo segundo cuando pasó
-    /// lo primero es exactamente la mentira silenciosa que ya nos costó una vez
-    /// con el número de versión: nunca falla, nunca avisa, y nunca te enterás.
+    /// Not being able to find out — no network, private repository, GitHub down —
+    /// is not the same as knowing there is nothing new. Returning the latter when
+    /// the former happened is exactly the silent lie the version number already
+    /// cost us once: it never fails, never warns, and you never find out.
     /// </summary>
     public static UpdateStatus CouldNotCheck(string current) =>
         new(UpdateResult.CouldNotCheck, current, null, null);
@@ -40,7 +40,7 @@ public sealed record UpdateStatus(UpdateResult Result, string CurrentVersion, st
 /// </summary>
 public sealed class UpdateChecker : IDisposable
 {
-    /// <summary>Dueño y nombre del repositorio. Un solo lugar para cambiarlo.</summary>
+    /// <summary>Owner and repository name. One place to change it.</summary>
     public const string Repository = "sebastianIncarbone/otto-dictation";
 
     private const string LatestReleaseUrl = $"https://api.github.com/repos/{Repository}/releases/latest";
@@ -57,10 +57,10 @@ public sealed class UpdateChecker : IDisposable
     }
 
     /// <summary>
-    /// Sale de <c>InformationalVersion</c>, no de <c>AssemblyVersion</c>: la
-    /// primera conserva lo que se puso en &lt;Version&gt;, mientras que la segunda
-    /// recorta a cuatro números y pierde cualquier sufijo. .NET le agrega el hash
-    /// de git detrás de un "+", que se descarta acá.
+    /// Read from <c>InformationalVersion</c>, not <c>AssemblyVersion</c>: the
+    /// first keeps whatever was put in &lt;Version&gt;, while the second truncates
+    /// to four numbers and loses any suffix. .NET appends the git hash after a
+    /// "+", which is discarded here.
     /// </summary>
     public static string Current =>
         Assembly.GetExecutingAssembly()
@@ -84,9 +84,9 @@ public sealed class UpdateChecker : IDisposable
         }
         catch (Exception ex)
         {
-            // Estar sin conexión es el estado normal de esta aplicación, no un
-            // error — pero tampoco es evidencia de estar actualizado.
-            log.LogInformation(ex, "No se pudo consultar si hay actualizaciones");
+            // Being offline is this application's normal state, not an error —
+            // but it is not evidence of being up to date either.
+            log.LogInformation(ex, "Could not check for updates");
             return UpdateStatus.CouldNotCheck(Current);
         }
     }

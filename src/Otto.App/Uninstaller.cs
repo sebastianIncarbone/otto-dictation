@@ -66,7 +66,7 @@ public static class Uninstaller
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "No se pudo abrir el desinstalador de Windows");
+            logger.LogError(ex, "Could not launch the Windows uninstaller");
             return false;
         }
     }
@@ -120,13 +120,13 @@ public static class Uninstaller
             try
             {
                 Directory.Delete(location, recursive: true);
-                logger.LogInformation("Borrado {Location}", location);
+                logger.LogInformation("Deleted {Location}", location);
             }
             catch (Exception ex)
             {
                 // Reported rather than swallowed: the user asked for this to be
                 // gone and deserves to know if part of it survived.
-                logger.LogError(ex, "No se pudo borrar {Location}", location);
+                logger.LogError(ex, "Could not delete {Location}", location);
             }
         }
     }

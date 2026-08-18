@@ -168,7 +168,7 @@ public sealed partial class MainViewModel : ObservableObject
     /// </summary>
     public void ReflectCharacterVisibility(bool visible) => ShowCharacter = visible;
 
-    // ---- Actualizaciones ----
+    // ---- Updates ----
 
     [ObservableProperty] private bool checkForUpdates;
     [ObservableProperty] private string updateStatus = "";
@@ -191,7 +191,7 @@ public sealed partial class MainViewModel : ObservableObject
         };
     }
 
-    // ---- Desinstalación ----
+    // ---- Uninstall ----
 
     [ObservableProperty] private bool isConfirmingUninstall;
     [ObservableProperty] private string uninstallWarning = "";

@@ -45,7 +45,7 @@ public static class Migrator
             }
 
             transaction.Commit();
-            logger.LogInformation("Migración aplicada: {Name}", name);
+            logger.LogInformation("Migration applied: {Name}", name);
         }
     }
 

@@ -75,18 +75,18 @@ public sealed class OllamaPostProcessor : IPostProcessor, IDisposable
             if (IsAvailable)
             {
                 await WarmUpAsync(cancellationToken);
-                log.LogInformation("Post-procesamiento activo con {Model}", options.Model);
+                log.LogInformation("Post-processing active with {Model}", options.Model);
             }
             else if (models.Length > 0)
-                log.LogWarning("Ollama responde pero no tiene {Model}. Corré: ollama pull {Model}", options.Model, options.Model);
+                log.LogWarning("Ollama responded but does not have {Model}. Run: ollama pull {Model}", options.Model, options.Model);
             else
-                log.LogInformation("Ollama no tiene modelos; el post-procesamiento queda desactivado");
+                log.LogInformation("Ollama has no models; post-processing stays disabled");
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             // Not having Ollama is a perfectly normal way to run Otto.
             IsAvailable = false;
-            log.LogInformation("Ollama no está disponible; se usa la transcripción cruda");
+            log.LogInformation("Ollama is not available; using the raw transcription");
         }
 
         return IsAvailable;
@@ -111,7 +111,7 @@ public sealed class OllamaPostProcessor : IPostProcessor, IDisposable
             if (!EditGuard.IsSafe(text, corrected))
             {
                 log.LogWarning(
-                    "Corrección descartada: tocó {Touched} palabras. Se inserta el texto crudo",
+                    "Correction discarded: it touched {Touched} words. Inserting the raw text",
                     EditGuard.WordsTouched(text, corrected));
 
                 return text;
@@ -121,7 +121,7 @@ public sealed class OllamaPostProcessor : IPostProcessor, IDisposable
         }
         catch (TaskCanceledException)
         {
-            log.LogWarning("El post-procesamiento tardó más de {Seconds:F0} s; se inserta el texto crudo",
+            log.LogWarning("Post-processing took longer than {Seconds:F0} s; inserting the raw text",
                 options.Timeout.TotalSeconds);
 
             return text;
@@ -129,7 +129,7 @@ public sealed class OllamaPostProcessor : IPostProcessor, IDisposable
         catch (Exception ex)
         {
             // Never let a correction cost someone their dictation.
-            log.LogWarning(ex, "Falló el post-procesamiento; se inserta el texto crudo");
+            log.LogWarning(ex, "Post-processing failed; inserting the raw text");
             return text;
         }
     }
@@ -149,11 +149,11 @@ public sealed class OllamaPostProcessor : IPostProcessor, IDisposable
         try
         {
             await ChatAsync("Hola.", cancellationToken);
-            log.LogInformation("Modelo de corrección calentado en {Seconds:F1} s", watch.Elapsed.TotalSeconds);
+            log.LogInformation("Correction model warmed up in {Seconds:F1} s", watch.Elapsed.TotalSeconds);
         }
         catch (Exception ex)
         {
-            log.LogWarning(ex, "No se pudo calentar el modelo de corrección");
+            log.LogWarning(ex, "Could not warm up the correction model");
         }
     }
 

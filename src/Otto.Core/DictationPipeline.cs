@@ -71,7 +71,7 @@ public sealed class DictationPipeline : IDisposable
 
         var watch = Stopwatch.StartNew();
         await transcriber.LoadAsync(cancellationToken);
-        log.LogInformation("Modelo cargado en {Seconds:F1} s", watch.Elapsed.TotalSeconds);
+        log.LogInformation("Model loaded in {Seconds:F1} s", watch.Elapsed.TotalSeconds);
 
         // Asked once at startup rather than on every dictation: a health check in
         // the hot path would cost more than the correction it guards.
@@ -123,7 +123,7 @@ public sealed class DictationPipeline : IDisposable
 
             if (string.IsNullOrWhiteSpace(text))
             {
-                log.LogInformation("Sin voz detectada, nada que escribir");
+                log.LogInformation("No speech detected, nothing to write");
                 HeardNothing?.Invoke();
                 return;
             }
@@ -140,7 +140,7 @@ public sealed class DictationPipeline : IDisposable
             await injector.InjectAsync(text);
 
             log.LogInformation(
-                "{Audio:F1} s de audio → {Chars} caracteres · transcripción {Transcribe:F2} s · corrección {Correct:F2} s · inyección {Inject:F2} s · total {Total:F2} s",
+                "{Audio:F1} s of audio → {Chars} characters · transcription {Transcribe:F2} s · correction {Correct:F2} s · injection {Inject:F2} s · total {Total:F2} s",
                 audio.Duration.TotalSeconds, text.Length,
                 transcribed.TotalSeconds, corrected.TotalSeconds, watch.Elapsed.TotalSeconds, total.Elapsed.TotalSeconds);
 
@@ -156,7 +156,7 @@ public sealed class DictationPipeline : IDisposable
             // A failed dictation must never take the app down: the user is in the
             // middle of typing somewhere else and would lose a background process
             // without ever seeing why.
-            log.LogError(ex, "Falló el dictado");
+            log.LogError(ex, "The dictation failed");
         }
         finally
         {
@@ -180,7 +180,7 @@ public sealed class DictationPipeline : IDisposable
         }
         catch (Exception ex)
         {
-            log.LogError(ex, "No se pudo guardar la nota; el dictado igual se escribió");
+            log.LogError(ex, "Could not save the note; the dictation was written anyway");
         }
     }
 

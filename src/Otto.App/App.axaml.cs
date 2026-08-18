@@ -64,7 +64,7 @@ public partial class App : Application
             // registered either way — so this must not be fatal, but the user
             // needs the window instead of an invisible process.
             services.GetRequiredService<ILogger<App>>()
-                .LogWarning(ex, "No se pudo crear el ícono de bandeja; se abre la ventana en su lugar");
+                .LogWarning(ex, "Could not create the tray icon; opening the window instead");
         }
     }
 
@@ -224,7 +224,7 @@ public partial class App : Application
         {
             // Personality is not a feature anyone should lose dictation over.
             character = null;
-            log.LogWarning(ex, "No se pudo mostrar el personaje; Otto sigue funcionando igual");
+            log.LogWarning(ex, "Could not show the character; Otto keeps working just the same");
         }
 
         RefreshCharacterItem();

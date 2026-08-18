@@ -44,7 +44,7 @@ public sealed class PollingHotkeyService : IHotkeyService
 
     public void Register(HotkeyBinding requested)
     {
-        if (pump is not null) throw new InvalidOperationException("El hotkey ya está registrado.");
+        if (pump is not null) throw new InvalidOperationException("The hotkey is already registered.");
 
         binding = requested;
 
@@ -80,12 +80,12 @@ public sealed class PollingHotkeyService : IHotkeyService
             var error = Marshal.GetLastWin32Error();
             ready.SetResult(new InvalidOperationException(
                 error == 1409
-                    ? "Esa combinación ya la está usando otra aplicación. Elegí otra."
-                    : $"No se pudo registrar el hotkey (error {error})."));
+                    ? "That combination is already in use by another application. Pick a different one."
+                    : $"Could not register the hotkey (error {error})."));
             return;
         }
 
-        log.LogInformation("Hotkey registrado: {Modifiers}+0x{Key:X2}", requested.Modifiers, requested.VirtualKey);
+        log.LogInformation("Hotkey registered: {Modifiers}+0x{Key:X2}", requested.Modifiers, requested.VirtualKey);
         ready.SetResult(null);
 
         while (Native.GetMessage(out var msg, IntPtr.Zero, 0, 0) > 0)

@@ -111,7 +111,7 @@ internal static partial class Native
     [LibraryImport("kernel32.dll")]
     internal static partial nuint GlobalSize(IntPtr hMem);
 
-    // ---- Entrada sintética ----
+    // ---- Synthetic input ----
 
     internal const uint INPUT_KEYBOARD = 1;
     internal const uint KEYEVENTF_KEYUP = 0x0002;

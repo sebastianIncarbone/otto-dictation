@@ -57,7 +57,7 @@ public sealed class ClipboardTextInjector : ITextInjector
 
         if (!TryWriteClipboard(text))
         {
-            log.LogWarning("No se pudo escribir en el portapapeles; se cancela la inserción");
+            log.LogWarning("Could not write to the clipboard; the injection is cancelled");
             return;
         }
 
@@ -68,7 +68,7 @@ public sealed class ClipboardTextInjector : ITextInjector
         await Task.Delay(TimeSpan.FromMilliseconds(120), cancellationToken);
 
         if (saved is not null && !TryWriteClipboard(saved, excludeFromHistory: false))
-            log.LogWarning("No se pudo restaurar el portapapeles anterior");
+            log.LogWarning("Could not restore the previous clipboard contents");
     }
 
     private string? TryReadClipboardText()

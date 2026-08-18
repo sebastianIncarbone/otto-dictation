@@ -70,8 +70,8 @@ public sealed class WasapiAudioCapture : IAudioCapture
 
         if (!sawAudio)
             log.LogWarning(
-                "El micrófono devolvió solo silencio. Revisá que 'Permitir que las aplicaciones de " +
-                "escritorio accedan al micrófono' esté activado en la configuración de privacidad.");
+                "The microphone returned nothing but silence. Check that 'Let desktop apps access " +
+                "your microphone' is enabled in the Windows privacy settings.");
 
         var samples = Resample(raw, deviceFormat);
         Cleanup();
