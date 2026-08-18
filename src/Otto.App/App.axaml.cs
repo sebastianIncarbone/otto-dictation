@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Otto.App.ViewModels;
 using Otto.App.Views;
 using Otto.Core;
+using Otto.Speech;
 
 namespace Otto.App;
 
@@ -17,6 +18,21 @@ public partial class App : Application
     private MainWindow? window;
     private CharacterWindow? character;
     private NativeMenuItem? characterItem;
+
+    /// <summary>
+    /// Set once, in <see cref="OnFrameworkInitializationCompleted"/>, and reused by
+    /// Reintentar: <see cref="Progress{T}"/> only needs to be built on the UI
+    /// thread once, and by the time a retry is possible the message loop is
+    /// already pumping on that same thread.
+    /// </summary>
+    private IProgress<ProvisioningStatus>? provisioningProgress;
+
+    /// <summary>
+    /// Cancelled by the "Salir" tray handler, so quitting mid-download exits
+    /// cleanly instead of racing the download to completion — the partial file
+    /// is preserved either way, but there is no reason to make someone wait.
+    /// </summary>
+    private readonly CancellationTokenSource shutdown = new();
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
@@ -37,17 +53,149 @@ public partial class App : Application
 
             SetUpTray(desktop);
             SetUpCharacter();
-            StartPipeline();
+
+            var needsProvisioning = services.GetRequiredService<ModelProvisioner>().NeedsProvisioning;
+
+            // Progress<T> captures the ambient SynchronizationContext at
+            // construction, not at the point it starts reporting — and this method
+            // runs on the UI thread, so every report from here on arrives already
+            // marshalled, with no Dispatcher.Post and no subscription to leak.
+            // Built anywhere off the UI thread — inside ProvisionThenStartAsync,
+            // say, after it has resumed past its own await — it would silently
+            // post to the thread pool instead, and the window would never update.
+            // Skipped entirely when nothing needs downloading: resolving
+            // MainViewModel is itself a cost, and a normal launch must stay
+            // exactly as cheap as it was before this feature existed.
+            //
+            // Done — and MainViewModel seeded via Apply() — BEFORE ShowWindow()
+            // runs below, not after. MainViewModel is a singleton, so ShowWindow()
+            // resolves this exact instance either way, but IsProvisioning defaults
+            // to false and would otherwise only flip once the first Progress<T>
+            // report is drained off the Avalonia dispatcher queue — which cannot
+            // happen until this method returns and the message loop starts
+            // pumping. Left in the old order, the very first paint could legally
+            // show the notes view (search box, empty-notes message, Configuración)
+            // for a frame before the provisioning card takes over, which is the
+            // opposite of what the spec requires: those sections hidden before any
+            // download progress is reported.
+            if (needsProvisioning)
+            {
+                var view = services.GetRequiredService<MainViewModel>();
+                view.Apply(new ProvisioningStatus(ProvisioningState.DownloadingSpeech));
+
+                provisioningProgress = new Progress<ProvisioningStatus>(status =>
+                {
+                    view.Apply(status);
+                    UpdateProvisioningTooltip(status);
+                });
+            }
 
             // Launching something and having nothing happen on screen reads as
-            // "it didn't work", even when it did. On a first run — or when the
-            // tray icon could not be created — the window is the only proof Otto
-            // is alive, so it opens.
-            if (services.GetRequiredService<Settings>().IsFirstRun || tray is null)
+            // "it didn't work", even when it did. On a first run, when models are
+            // missing, or when the tray icon could not be created, the window is
+            // the only proof Otto is alive, so it opens.
+            if (needsProvisioning || services.GetRequiredService<Settings>().IsFirstRun || tray is null)
                 ShowWindow();
+
+            _ = ProvisionThenStartAsync(needsProvisioning, provisioningProgress);
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    /// <summary>
+    /// The tray tooltip is the only feedback left once the window is closed mid-
+    /// download. <see cref="ProvisioningState.Ready"/> is deliberately not handled
+    /// here: <see cref="StartPipelineAsync"/> is about to run
+    /// <see cref="DictationPipeline.StartAsync"/>, whose own <c>StateChanged</c>
+    /// handler (in <see cref="BuildTray"/>) takes the tooltip back over from here.
+    /// </summary>
+    private void UpdateProvisioningTooltip(ProvisioningStatus status)
+    {
+        if (tray is null) return;
+
+        switch (status.State)
+        {
+            case ProvisioningState.DownloadingSpeech:
+                tray.ToolTipText = status.Progress is { } p
+                    ? $"Otto — descargando {p.Fraction:P0}"
+                    : "Otto — descargando el modelo";
+                break;
+
+            case ProvisioningState.PreparingVad:
+                tray.ToolTipText = "Otto — preparando el detector de voz";
+                break;
+
+            case ProvisioningState.Failed:
+                tray.ToolTipText = "Otto — no se pudo descargar el modelo";
+                break;
+        }
+    }
+
+    /// <summary>
+    /// The one call site for <see cref="StartPipelineAsync"/>. Expressed as a single
+    /// <c>await</c>-sequenced method rather than a callback so the ordering —
+    /// provisioning finishes, then and only then the pipeline starts — cannot be
+    /// interleaved by accident. <see cref="DictationPipeline"/> swallows exceptions
+    /// by design, so calling <c>StartAsync</c> against a model that has not
+    /// finished downloading would fail once and then never try again.
+    /// </summary>
+    private async Task ProvisionThenStartAsync(bool needsProvisioning, IProgress<ProvisioningStatus>? progress)
+    {
+        // Resolved before the try, not inside a catch: if this resolution itself threw,
+        // the catch would throw too and the exception would go right back to being
+        // unobserved by the caller, which discards this Task — the exact failure mode
+        // the try/catch below exists to close.
+        var logger = services.GetRequiredService<ILogger<App>>();
+
+        // The caller discards this Task, so nothing observes what escapes here. Before
+        // provisioning moved out of Program.cs, StartPipeline() was called directly and
+        // a throw from it — Autostart.RepairIfMoved() reads the registry, which can fail
+        // — propagated out of OnFrameworkInitializationCompleted and died loudly. Left
+        // unguarded, that same throw would now be swallowed by an unobserved Task and
+        // Otto would sit there with a tray icon, a window, and no hotkey registered.
+        // Catching it here keeps the app alive, which is the invariant, but the log is
+        // what stops "alive" from meaning "silently useless".
+        try
+        {
+            if (!needsProvisioning)
+            {
+                await StartPipelineAsync();
+                return;
+            }
+
+            var provisioner = services.GetRequiredService<ModelProvisioner>();
+            var result = await provisioner.ProvisionAsync(progress, shutdown.Token);
+
+            if (result == ProvisioningState.Ready) await StartPipelineAsync();
+        }
+        catch (HotkeyRegistrationException ex)
+        {
+            // The one failure this whole change exists to remove was invisible: a tray
+            // icon, a window, and no hotkey, with nothing telling the user why. Caught
+            // here — not inside DictationPipeline, which keeps swallowing everything
+            // else by design, and not inside the adapter, which already knows the cause
+            // but has no UI to speak through — and only here can StartAsync's failure
+            // finally be awaited for real, instead of a fire-and-forget call whose
+            // exception nobody was ever going to see.
+            logger.LogError(ex,
+                "Hotkey registration failed at startup: {Modifiers}+0x{Key:X2}, already in use: {AlreadyInUse}",
+                ex.Binding.Modifiers, ex.Binding.VirtualKey, ex.AlreadyInUse);
+
+            // A tray-only user would otherwise see nothing at all — the window is the
+            // only proof anything is wrong, and the only place Configuración lives.
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                services.GetRequiredService<MainViewModel>().ShowHotkeyFailure(ex.AlreadyInUse);
+                ShowWindow();
+
+                if (tray is not null) tray.ToolTipText = "Otto — no se pudo activar el atajo";
+            });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Startup sequencing failed; Otto is running without a registered hotkey");
+        }
     }
 
     private void SetUpTray(IClassicDesktopStyleApplicationLifetime desktop)
@@ -110,6 +258,11 @@ public partial class App : Application
         var quit = new NativeMenuItem("Salir");
         quit.Click += (_, _) =>
         {
+            // Preserves the .part file exactly as well as letting the download
+            // finish would — ModelDownloader never deletes it on cancellation
+            // either — but there is no reason to make someone wait for it.
+            shutdown.Cancel();
+
             services.GetRequiredService<DictationPipeline>().Dispose();
             desktop.Shutdown();
         };
@@ -129,6 +282,11 @@ public partial class App : Application
             // The same switch lives in two places; this is the settings window
             // telling the tray what the user just chose.
             view.CharacterVisibilityChanged += visible => SetCharacterVisible(visible, persist: false);
+
+            // Reintentar re-enters the same sequencing method retry went through
+            // the first time, so success after a retry starts the pipeline through
+            // the exact same path as any other launch.
+            view.RetryRequested += () => _ = ProvisionThenStartAsync(true, provisioningProgress);
 
             window = new MainWindow { DataContext = view };
 
@@ -247,13 +405,18 @@ public partial class App : Application
             characterItem.Header = CharacterVisible ? "Esconder a Otto" : "Mostrar a Otto";
     }
 
-    private void StartPipeline()
+    /// <summary>
+    /// Awaited now, not fired-and-forgotten: a registration failure has to reach
+    /// <see cref="ProvisionThenStartAsync"/>'s try/catch, and a discarded Task would
+    /// have taken the exception down with it instead.
+    /// </summary>
+    private async Task StartPipelineAsync()
     {
         var pipeline = services.GetRequiredService<DictationPipeline>();
         var settings = services.GetRequiredService<Settings>();
 
         Autostart.RepairIfMoved();
 
-        _ = pipeline.StartAsync(settings.ToBinding());
+        await pipeline.StartAsync(settings.ToBinding());
     }
 }

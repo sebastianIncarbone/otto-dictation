@@ -32,11 +32,31 @@
       <Grid ColumnDefinitions="*,Auto">
         <StackPanel Spacing="2">
           <TextBlock Text="Otto" FontSize="20" FontWeight="SemiBold" />
-          <TextBlock Text="{Binding StatusText}" FontSize="12" Opacity="0.7" />
+          <!-- Envuelve porque este renglón dejó de ser sólo "Listo · Ctrl+Alt+Espacio".
+               Cuando el atajo no se pudo registrar, acá va la explicación completa, y
+               sin esto se cortaba justo en la parte que dice qué hacer al respecto:
+               un aviso que no entra en la pantalla no avisa nada. -->
+          <TextBlock Text="{Binding StatusText}" FontSize="12" Opacity="0.7"
+                     TextWrapping="Wrap" />
+
+          <!-- El aviso de reinicio vive acá, en el encabezado, y no adentro de la
+               tarjeta de configuración: guardar cierra esa tarjeta, así que el aviso
+               se escondía justo en el momento en que empezaba a ser cierto. Y el
+               encabezado sigue anunciando el atajo viejo — que es el correcto, es el
+               que está escuchando — con lo cual sin esta línea el usuario aprieta la
+               combinación nueva, no pasa nada, y la interfaz lo desmiente.
+
+               HotkeyChangePending es lo guardado contra lo registrado, así que esto
+               se apaga solo apenas Otto arranca de nuevo. No hay que bajarlo a mano,
+               y no puede quedar prendido mintiendo. -->
+          <TextBlock Text="El atajo nuevo se activa recién en el próximo inicio de Otto."
+                     FontSize="12" Opacity="0.7" TextWrapping="Wrap"
+                     IsVisible="{Binding HotkeyChangePending}" />
         </StackPanel>
 
         <Button Grid.Column="1" Content="Configuración" VerticalAlignment="Center"
-                Command="{Binding ToggleSettingsCommand}" />
+                Command="{Binding ToggleSettingsCommand}"
+                IsVisible="{Binding !IsProvisioning}" />
       </Grid>
     </Border>
 
@@ -47,9 +67,24 @@
       <StackPanel Spacing="12">
         <TextBlock Classes="eyebrow" Text="CONFIGURACIÓN" />
 
+        <!-- Atajo: nunca texto libre. Lo único que puede llegar a Modifiers/VirtualKey es
+             una combinación realmente presionada y capturada por MainViewModel.OfferKey —
+             ver HotkeyLabels.cs y el manejador de KeyDown en MainWindow.axaml.cs. -->
         <StackPanel Spacing="4">
           <TextBlock Text="Atajo" FontSize="12" Opacity="0.7" />
-          <TextBox Text="{Binding HotkeyLabel}" />
+
+          <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding !IsCapturingHotkey}">
+            <TextBlock Text="{Binding HotkeyLabel}" VerticalAlignment="Center" FontWeight="SemiBold" />
+            <Button Grid.Column="1" Content="Cambiar" Command="{Binding StartHotkeyCaptureCommand}" />
+          </Grid>
+
+          <StackPanel Spacing="6" IsVisible="{Binding IsCapturingHotkey}">
+            <Border Classes="card" Padding="8">
+              <TextBlock Text="{Binding HotkeyHint}" TextWrapping="Wrap" />
+            </Border>
+            <Button Content="Cancelar" HorizontalAlignment="Left" Command="{Binding CancelHotkeyCaptureCommand}" />
+          </StackPanel>
+
         </StackPanel>
 
         <StackPanel Spacing="4">
@@ -100,48 +135,85 @@
       </StackPanel>
     </Border>
 
-    <!-- Búsqueda -->
-    <TextBox DockPanel.Dock="Top" Margin="18,14,18,10"
-             PlaceholderText="Buscar en tus notas…" Text="{Binding Search}" />
+    <!-- Cuerpo: notas y descarga inicial ocupan el mismo lugar y nunca se ven
+         juntas — se turnan según IsProvisioning, en vez de vivir en ventanas
+         separadas que habría que administrar. -->
+    <Grid>
 
-    <!-- Vacío -->
-    <TextBlock DockPanel.Dock="Top" Margin="18,40,18,0"
-               Text="{Binding EmptyMessage}" TextWrapping="Wrap" TextAlignment="Center"
-               Opacity="0.55" IsVisible="{Binding IsEmpty}" />
+      <DockPanel LastChildFill="True" IsVisible="{Binding !IsProvisioning}">
 
-    <!-- Notas -->
-    <ScrollViewer Padding="18,0,18,18">
-      <ItemsControl ItemsSource="{Binding Notes}">
-        <ItemsControl.ItemTemplate>
-          <DataTemplate x:DataType="vm:NoteViewModel">
-            <Border Classes="card" Margin="0,0,0,10">
-              <StackPanel Spacing="8">
+        <!-- Búsqueda -->
+        <TextBox DockPanel.Dock="Top" Margin="18,14,18,10"
+                 PlaceholderText="Buscar en tus notas…" Text="{Binding Search}" />
 
-                <Grid ColumnDefinitions="*,Auto">
-                  <TextBox Text="{Binding Title}" PlaceholderText="{Binding Heading}"
-                           BorderThickness="0" Padding="0" FontWeight="SemiBold" />
-                  <TextBlock Grid.Column="1" Text="{Binding Subtitle}"
-                             FontSize="11" Opacity="0.55" VerticalAlignment="Center" />
-                </Grid>
+        <!-- Vacío -->
+        <TextBlock DockPanel.Dock="Top" Margin="18,40,18,0"
+                   Text="{Binding EmptyMessage}" TextWrapping="Wrap" TextAlignment="Center"
+                   Opacity="0.55" IsVisible="{Binding IsEmpty}" />
 
-                <TextBox Text="{Binding Text}" AcceptsReturn="True" TextWrapping="Wrap"
-                         BorderThickness="0" Padding="0" MaxHeight="220" />
+        <!-- Notas -->
+        <ScrollViewer Padding="18,0,18,18">
+          <ItemsControl ItemsSource="{Binding Notes}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:NoteViewModel">
+                <Border Classes="card" Margin="0,0,0,10">
+                  <StackPanel Spacing="8">
 
-                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-                  <!-- Guardar solo aparece si hay algo que guardar: un botón que no
-                       hace nada la mayor parte del tiempo es ruido. -->
-                  <Button Content="Guardar" Command="{Binding SaveCommand}"
-                          IsVisible="{Binding IsDirty}" />
-                  <Button Content="{Binding CopyLabel}" Command="{Binding CopyCommand}" />
-                  <Button Content="Borrar" Command="{Binding DeleteCommand}" />
-                </StackPanel>
+                    <Grid ColumnDefinitions="*,Auto">
+                      <TextBox Text="{Binding Title}" PlaceholderText="{Binding Heading}"
+                               BorderThickness="0" Padding="0" FontWeight="SemiBold" />
+                      <TextBlock Grid.Column="1" Text="{Binding Subtitle}"
+                                 FontSize="11" Opacity="0.55" VerticalAlignment="Center" />
+                    </Grid>
 
-              </StackPanel>
-            </Border>
-          </DataTemplate>
-        </ItemsControl.ItemTemplate>
-      </ItemsControl>
-    </ScrollViewer>
+                    <TextBox Text="{Binding Text}" AcceptsReturn="True" TextWrapping="Wrap"
+                             BorderThickness="0" Padding="0" MaxHeight="220" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                      <!-- Guardar solo aparece si hay algo que guardar: un botón que
+                           no hace nada la mayor parte del tiempo es ruido. -->
+                      <Button Content="Guardar" Command="{Binding SaveCommand}"
+                              IsVisible="{Binding IsDirty}" />
+                      <Button Content="{Binding CopyLabel}" Command="{Binding CopyCommand}" />
+                      <Button Content="Borrar" Command="{Binding DeleteCommand}" />
+                    </StackPanel>
+
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+
+      </DockPanel>
+
+      <!-- Descarga inicial: el usuario nunca ve las notas hasta que el modelo
+           está listo, así que esto reemplaza toda la sección de arriba en vez de
+           superponerse. -->
+      <Border Classes="card" Margin="18" VerticalAlignment="Center"
+              IsVisible="{Binding IsProvisioning}">
+        <StackPanel Spacing="12">
+
+          <StackPanel Spacing="8" IsVisible="{Binding !HasProvisioningError}">
+            <TextBlock Classes="eyebrow" Text="PREPARANDO OTTO" />
+            <TextBlock Text="{Binding ProvisioningText}" FontSize="15" FontWeight="SemiBold"
+                       TextWrapping="Wrap" />
+            <ProgressBar Minimum="0" Maximum="1" Value="{Binding ProvisioningPercent}" />
+            <TextBlock Text="{Binding ProvisioningDetail}" FontSize="12" Opacity="0.7" />
+          </StackPanel>
+
+          <StackPanel Spacing="8" IsVisible="{Binding HasProvisioningError}">
+            <TextBlock Classes="eyebrow" Text="PREPARANDO OTTO" />
+            <TextBlock Text="{Binding ProvisioningError}" TextWrapping="Wrap"
+                       FontSize="13" Foreground="#E5484A" />
+            <Button Content="Reintentar" HorizontalAlignment="Left"
+                    Command="{Binding RetryCommand}" />
+          </StackPanel>
+
+        </StackPanel>
+      </Border>
+
+    </Grid>
 
   </DockPanel>
 </Window>

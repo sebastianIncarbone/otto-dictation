@@ -21,6 +21,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Otto.Core\Otto.Core.csproj" />
+    <!-- Available transitively via Otto.App, but stated explicitly: this test
+         project exercises Otto.Speech types directly, not just through the app. -->
+    <ProjectReference Include="..\..\src\Otto.Speech\Otto.Speech.csproj" />
     <ProjectReference Include="..\..\src\Otto.Storage\Otto.Storage.csproj" />
     <ProjectReference Include="..\..\src\Otto.PostProcessing\Otto.PostProcessing.csproj" />
     <ProjectReference Include="..\..\src\Otto.App\Otto.App.csproj" />
