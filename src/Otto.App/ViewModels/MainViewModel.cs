@@ -55,6 +55,7 @@ public sealed partial class MainViewModel : ObservableObject
         language = settings.Language;
         startWithWindows = settings.StartWithWindows;
         showCharacter = settings.ShowCharacter;
+        appearance = settings.CharacterAppearance;
         checkForUpdates = settings.CheckForUpdates;
 
         pipeline.StateChanged += OnPipelineStateChanged;
@@ -72,6 +73,41 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private string language;
     [ObservableProperty] private bool startWithWindows;
     [ObservableProperty] private bool showCharacter;
+
+    /// <summary>
+    /// Which overlay is shown. Separate from <see cref="ShowCharacter"/>, which
+    /// decides whether there is one at all.
+    /// </summary>
+    [ObservableProperty] private CharacterAppearance appearance;
+
+    /// <summary>
+    /// The two halves of the "Apariencia" choice, as the pair of booleans a radio
+    /// group binds to.
+    ///
+    /// Written out rather than bound through an inverting converter because a
+    /// converter would leave the two radios independently settable, and the state
+    /// where neither — or both — is checked has no meaning. Here the enum is the
+    /// single value and these two are views onto it, so it cannot happen. Setting
+    /// one to false does nothing: unchecking is what the other one's check means.
+    /// </summary>
+    public bool IsCharacterAppearance
+    {
+        get => Appearance == CharacterAppearance.Character;
+        set { if (value) Appearance = CharacterAppearance.Character; }
+    }
+
+    /// <inheritdoc cref="IsCharacterAppearance"/>
+    public bool IsMinimalAppearance
+    {
+        get => Appearance == CharacterAppearance.Minimal;
+        set { if (value) Appearance = CharacterAppearance.Minimal; }
+    }
+
+    partial void OnAppearanceChanged(CharacterAppearance value)
+    {
+        OnPropertyChanged(nameof(IsCharacterAppearance));
+        OnPropertyChanged(nameof(IsMinimalAppearance));
+    }
 
     /// <summary>
     /// A failed startup registration leaves <see cref="State"/> stuck at
@@ -223,6 +259,14 @@ public sealed partial class MainViewModel : ObservableObject
     /// choice, and the two have to agree.
     /// </summary>
     public event Action<bool>? CharacterVisibilityChanged;
+
+    /// <summary>
+    /// Raised on save so <c>App</c> can swap the live overlay. Carries no
+    /// obligation to persist — <see cref="SaveSettings"/> has already done that,
+    /// and a second writer is how the character switch nearly became an infinite
+    /// bounce between its two owners.
+    /// </summary>
+    public event Action<CharacterAppearance>? CharacterAppearanceChanged;
 
     // ---- Hotkey capture ----
 
@@ -433,6 +477,7 @@ public sealed partial class MainViewModel : ObservableObject
         Language = Language,
         StartWithWindows = StartWithWindows,
         ShowCharacter = ShowCharacter,
+        CharacterAppearance = Appearance,
         CheckForUpdates = CheckForUpdates,
     };
 
@@ -448,6 +493,7 @@ public sealed partial class MainViewModel : ObservableObject
 
         Autostart.Apply(StartWithWindows);
         CharacterVisibilityChanged?.Invoke(ShowCharacter);
+        CharacterAppearanceChanged?.Invoke(Appearance);
 
         IsSettingsOpen = false;
     }
