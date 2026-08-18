@@ -55,6 +55,31 @@ public class DictationPipelineTests
     }
 
     [Fact]
+    public async Task RegisteredHotkey_se_completa_recien_despues_de_un_registro_exitoso()
+    {
+        using var pipeline = await StartedAsync();
+
+        Assert.Equal(HotkeyBinding.Default, pipeline.RegisteredHotkey);
+    }
+
+    [Fact]
+    public async Task Un_registro_que_falla_deja_RegisteredHotkey_en_null_y_propaga_la_excepcion()
+    {
+        // StartAsync deliberately has no try/catch around hotkey.Register: this one
+        // failure has to reach a layer with a window to open, and that is Otto.App,
+        // not the pipeline, which keeps swallowing everything else by design.
+        var failure = new HotkeyRegistrationException(HotkeyBinding.Default, alreadyInUse: true);
+        hotkey.When(h => h.Register(Arg.Any<HotkeyBinding>())).Do(_ => throw failure);
+
+        using var pipeline = Build();
+
+        await Assert.ThrowsAsync<HotkeyRegistrationException>(() => pipeline.StartAsync(HotkeyBinding.Default));
+
+        Assert.Null(pipeline.RegisteredHotkey);
+        Assert.Equal(DictationState.Loading, pipeline.State);
+    }
+
+    [Fact]
     public async Task Un_dictado_completo_transcribe_e_inyecta()
     {
         transcriber

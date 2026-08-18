@@ -54,7 +54,7 @@ public sealed partial class MainViewModel : ObservableObject
         showCharacter = settings.ShowCharacter;
         checkForUpdates = settings.CheckForUpdates;
 
-        pipeline.StateChanged += OnStateChanged;
+        pipeline.StateChanged += OnPipelineStateChanged;
         pipeline.Saved += OnSaved;
 
         state = pipeline.State;
@@ -70,21 +70,61 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private bool startWithWindows;
     [ObservableProperty] private bool showCharacter;
 
-    public string StatusText => State switch
-    {
-        DictationState.Loading      => "Cargando modelo…",
-        DictationState.Recording    => "Escuchando",
-        DictationState.Transcribing => "Procesando",
-        _ => $"Listo · {ListeningLabel}",
-    };
+    /// <summary>
+    /// A failed startup registration leaves <see cref="State"/> stuck at
+    /// <see cref="DictationState.Loading"/> forever — nothing retries and nothing
+    /// exits, because the hotkey <em>is</em> the dictation here. Consulted first so
+    /// this header stops repeating "Cargando modelo…" about a load that already
+    /// finished and quietly lying about it.
+    /// </summary>
+    public string StatusText => HasHotkeyAlert
+        ? HotkeyAlertMessage
+        : State switch
+        {
+            DictationState.Loading      => "Cargando modelo…",
+            DictationState.Recording    => "Escuchando",
+            DictationState.Transcribing => "Procesando",
+            _ => $"Listo · {ListeningLabel}",
+        };
 
     public bool IsEmpty => Notes.Count == 0;
 
-    public string EmptyMessage => string.IsNullOrWhiteSpace(Search)
-        ? $"Todavía no dictaste nada.\nMantené {ListeningLabel} en cualquier programa y hablá."
-        : $"Nada que coincida con «{Search}».";
+    /// <summary>See <see cref="StatusText"/> — same alert-first rule, same reason.</summary>
+    public string EmptyMessage => HasHotkeyAlert
+        ? HotkeyAlertMessage
+        : string.IsNullOrWhiteSpace(Search)
+            ? $"Todavía no dictaste nada.\nMantené {ListeningLabel} en cualquier programa y hablá."
+            : $"Nada que coincida con «{Search}».";
 
-    /// <summary>StartAsync sets <c>pipeline.RegisteredHotkey</c> right before this fires, so everything derived from it renotifies here too.</summary>
+    /// <summary>
+    /// <c>DictationPipeline</c> fires <c>StateChanged</c> from whatever thread the
+    /// transition happened on — the <c>Otto.Hotkey</c> pump thread on press/release, a
+    /// thread-pool thread once transcription finishes — never the UI thread.
+    /// <see cref="OnSaved"/> already established the fix for exactly this shape of
+    /// problem: post to the dispatcher rather than touching bound state directly.
+    ///
+    /// <para>
+    /// Setting <see cref="State"/> here, instead of subscribing this method to
+    /// <c>StateChanged</c> directly, is load-bearing. This method's name would
+    /// otherwise collide with the CommunityToolkit-generated <see cref="OnStateChanged"/>
+    /// partial hook below, and wiring the pipeline event straight to that hook — which
+    /// is what this class used to do — meant it ran without ever going through the
+    /// generated <see cref="State"/> property setter, so the backing field was never
+    /// actually written. <see cref="State"/> stayed frozen at whatever the pipeline
+    /// reported at construction time, which on a first-run or provisioning launch is
+    /// <see cref="DictationState.Loading"/> for the rest of the session.
+    /// </para>
+    /// </summary>
+    private void OnPipelineStateChanged(DictationState value) => Dispatcher.UIThread.Post(() => State = value);
+
+    /// <summary>
+    /// The CommunityToolkit-generated hook for <see cref="State"/>. It runs inside the
+    /// generated property setter, right after the backing field is written, so this
+    /// body is already on the UI thread thanks to <see cref="OnPipelineStateChanged"/>
+    /// above. <c>pipeline.RegisteredHotkey</c> is set immediately before <c>StartAsync</c>
+    /// transitions to <see cref="DictationState.Idle"/>, so everything derived from it
+    /// renotifies here too.
+    /// </summary>
     partial void OnStateChanged(DictationState value)
     {
         OnPropertyChanged(nameof(StatusText));
@@ -219,6 +259,16 @@ public sealed partial class MainViewModel : ObservableObject
     {
         IsCapturingHotkey = false;
         HotkeyHint = "";
+
+        // A capture that committed a candidate (OfferKey's last branch) but was then
+        // abandoned — the settings card closed, or the standalone Cancelar command
+        // called directly — left Captured holding that candidate. ApplyTo writes
+        // Captured unconditionally, so the next unrelated Guardar (a language change,
+        // an autostart toggle) would have persisted a hotkey the user never asked to
+        // save. Restoring to savedHotkey — what is actually on disk — is always safe
+        // here even when nothing was ever committed, since Captured then already
+        // equals savedHotkey and this is a no-op.
+        Captured = savedHotkey;
     }
 
     /// <summary>
@@ -264,6 +314,42 @@ public sealed partial class MainViewModel : ObservableObject
         Captured = new HotkeyBinding(modifiers, virtualKey);
         IsCapturingHotkey = false;
         HotkeyHint = "";
+    }
+
+    // ---- Startup registration failure ----
+
+    /// <summary>
+    /// Set from <see cref="Otto.App.App.ProvisionThenStartAsync"/>'s catch when
+    /// <c>DictationPipeline.StartAsync</c> threw a <see cref="HotkeyRegistrationException"/>.
+    /// Once that happens <see cref="State"/> is stuck at <see cref="DictationState.Loading"/>
+    /// forever — nothing retries and nothing exits, because the hotkey <em>is</em> the
+    /// dictation here — so <see cref="StatusText"/> and <see cref="EmptyMessage"/> both
+    /// have to stop repeating "Cargando modelo…" and say what actually happened instead.
+    /// </summary>
+    [ObservableProperty] private bool hasHotkeyAlert;
+
+    [ObservableProperty] private string hotkeyAlertMessage = "";
+
+    /// <summary>
+    /// Called only from <see cref="Otto.App.App"/>'s catch, already marshalled onto the
+    /// UI thread the same way <see cref="OnPipelineStateChanged"/> is — this can only
+    /// ever be reached from a startup failure caught off the UI thread, and
+    /// <c>OnPropertyChanged</c> is not thread-safe.
+    /// </summary>
+    public void ShowHotkeyFailure(bool alreadyInUse)
+    {
+        HasHotkeyAlert = true;
+
+        // ListeningLabel already falls back to startupHotkey while RegisteredHotkey is
+        // null, and RegisteredHotkey stays null forever after this failure — so it
+        // names the exact combination that just failed to register, with no separate
+        // field to keep in sync.
+        HotkeyAlertMessage = alreadyInUse
+            ? $"No se pudo activar el atajo {ListeningLabel}: otra aplicación ya lo está usando. Elegí uno distinto en Configuración."
+            : $"No se pudo activar el atajo {ListeningLabel}. Elegí uno distinto en Configuración.";
+
+        OnPropertyChanged(nameof(StatusText));
+        OnPropertyChanged(nameof(EmptyMessage));
     }
 
     /// <summary>

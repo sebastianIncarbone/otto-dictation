@@ -29,8 +29,42 @@ public interface IHotkeyService : IDisposable
     event Action? Pressed;
     event Action? Released;
 
+    /// <summary>
+    /// Registers <paramref name="binding"/> with the OS.
+    ///
+    /// <para>
+    /// Obligation on the adapter: this MUST throw <see cref="HotkeyRegistrationException"/>
+    /// — never swallow the failure and never leave the service silently unregistered —
+    /// when the underlying registration call fails, whether because another
+    /// application already holds the combination or for any other reason the OS
+    /// refuses it. Before this obligation existed, a taken combination meant Otto ran
+    /// with a tray icon and a window and no hotkey, with nothing telling the user why;
+    /// that silence is the defect class this exception exists to close. The caller —
+    /// <c>Otto.App</c>, not <see cref="Otto.Core.DictationPipeline"/>, which keeps
+    /// swallowing everything else by design — is the only layer with a window to
+    /// surface it through.
+    /// </para>
+    /// </summary>
     void Register(HotkeyBinding binding);
     void Unregister();
+}
+
+/// <summary>
+/// Thrown by an <see cref="IHotkeyService.Register"/> adapter when the OS refuses the
+/// registration. <see cref="AlreadyInUse"/> distinguishes the one cause the user can
+/// actually act on — pick a different combination — from every other reason
+/// (a reserved system combination, for instance), which is just as visible but not
+/// actionable the same way.
+/// </summary>
+public sealed class HotkeyRegistrationException(HotkeyBinding binding, bool alreadyInUse)
+    : Exception(alreadyInUse
+        ? $"The combination {binding.Modifiers}+0x{binding.VirtualKey:X2} is already in use by another application."
+        : $"Could not register the hotkey {binding.Modifiers}+0x{binding.VirtualKey:X2}.")
+{
+    public HotkeyBinding Binding { get; } = binding;
+
+    /// <summary>True for Win32 error 1409 (ERROR_HOTKEY_ALREADY_REGISTERED).</summary>
+    public bool AlreadyInUse { get; } = alreadyInUse;
 }
 
 public sealed record HotkeyBinding(HotkeyModifiers Modifiers, uint VirtualKey)

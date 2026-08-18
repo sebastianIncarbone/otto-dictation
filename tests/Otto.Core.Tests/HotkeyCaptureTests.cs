@@ -170,6 +170,27 @@ public class HotkeyCaptureTests
     }
 
     [Fact]
+    public async Task Cerrar_la_configuracion_despues_de_capturar_sin_guardar_descarta_lo_capturado()
+    {
+        // CancelHotkeyCapture used to clear IsCapturingHotkey/HotkeyHint but leave
+        // Captured holding whatever had just been committed, and ApplyTo writes
+        // Captured unconditionally — so a combination the user backed out of would
+        // have been persisted by the next unrelated Guardar (a language change, an
+        // autostart toggle), not just by saving the hotkey itself.
+        var view = await BuildAsync(HotkeyBinding.Default);
+        var etiquetaAntes = view.HotkeyLabel;
+
+        view.IsSettingsOpen = true;
+        view.IsCapturingHotkey = true;
+        view.OfferKey(HotkeyModifiers.Alt | HotkeyModifiers.Shift, 0x4B); // Alt+Shift+K, commits
+        Assert.Equal("Alt+Shift+K", view.HotkeyLabel);
+
+        view.IsSettingsOpen = false; // closes the card without ever hitting Guardar
+
+        Assert.Equal(etiquetaAntes, view.HotkeyLabel);
+    }
+
+    [Fact]
     public async Task Con_la_captura_desarmada_un_atajo_cualquiera_no_cambia_nada()
     {
         var view = await BuildAsync(HotkeyBinding.Default);

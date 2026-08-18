@@ -78,10 +78,7 @@ public sealed class PollingHotkeyService : IHotkeyService
         if (!Native.RegisterHotKey(IntPtr.Zero, HotkeyId, modifiers, requested.VirtualKey))
         {
             var error = Marshal.GetLastWin32Error();
-            ready.SetResult(new InvalidOperationException(
-                error == 1409
-                    ? "That combination is already in use by another application. Pick a different one."
-                    : $"Could not register the hotkey (error {error})."));
+            ready.SetResult(new HotkeyRegistrationException(requested, alreadyInUse: error == 1409));
             return;
         }
 
