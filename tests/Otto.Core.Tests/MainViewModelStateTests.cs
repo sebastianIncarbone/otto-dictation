@@ -28,17 +28,24 @@ namespace Otto.Core.Tests;
 /// </summary>
 public class MainViewModelStateTests
 {
-    private static MainViewModel Build(DictationPipeline pipeline) => new(
-        Substitute.For<INoteRepository>(),
-        pipeline,
-        new SettingsStore(Path.Combine(Path.GetTempPath(), "otto-tests-no-escribe.json")),
-        new Settings(),
-        databasePath: "",
-        clipboard: () => null,
-        provisioningOptions: new ProvisioningOptions
-        {
-            ModelsDirectory = "", SpeechFileName = "", VadFileName = "", Label = "", Size = "",
-        });
+    private static MainViewModel Build(DictationPipeline pipeline)
+    {
+        var availability = Substitute.For<IHotkeyAvailability>();
+        availability.IsAvailable(Arg.Any<HotkeyBinding>()).Returns(true);
+
+        return new(
+            Substitute.For<INoteRepository>(),
+            pipeline,
+            new SettingsStore(Path.Combine(Path.GetTempPath(), "otto-tests-no-escribe.json")),
+            new Settings(),
+            databasePath: "",
+            clipboard: () => null,
+            provisioningOptions: new ProvisioningOptions
+            {
+                ModelsDirectory = "", SpeechFileName = "", VadFileName = "", Label = "", Size = "",
+            },
+            availability);
+    }
 
     private static DictationPipeline BuildPipeline(IHotkeyService? hotkey = null) => new(
         hotkey ?? Substitute.For<IHotkeyService>(),

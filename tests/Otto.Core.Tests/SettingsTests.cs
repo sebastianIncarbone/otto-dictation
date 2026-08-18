@@ -26,6 +26,13 @@ public class SettingsTests
             new NullPostProcessor(),
             NullLogger<DictationPipeline>.Instance);
 
+        // Alt+Shift+K in Guardar_aplica_el_binding_capturado_por_el_usuario... is a
+        // real OfferKey probe call: pipeline.RegisteredHotkey is null here (StartAsync
+        // is never called in this file), so an unconfigured substitute — false by
+        // NSubstitute's default — would refuse that capture and break the test.
+        var availability = Substitute.For<IHotkeyAvailability>();
+        availability.IsAvailable(Arg.Any<HotkeyBinding>()).Returns(true);
+
         return new MainViewModel(
             Substitute.For<INoteRepository>(),
             pipeline,
@@ -36,7 +43,8 @@ public class SettingsTests
             provisioningOptions: new ProvisioningOptions
             {
                 ModelsDirectory = "", SpeechFileName = "", VadFileName = "", Label = "", Size = "",
-            });
+            },
+            availability);
     }
 
     [Fact]

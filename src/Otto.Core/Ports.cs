@@ -82,6 +82,22 @@ public enum HotkeyModifiers
     Windows = 8,
 }
 
+/// <summary>
+/// Tells whether a binding is free to register — at capture time, before the user
+/// saves it — by actually attempting the registration rather than consulting a
+/// hardcoded reserved-key list; Windows is the only authority on what another
+/// application already holds. Two obligations on the adapter are load-bearing: it
+/// MUST release whatever it took in a <c>finally</c> before returning (a leaked
+/// registration would make Otto itself the app holding the combination it was
+/// only supposed to be testing), and it MUST return <c>true</c> — available —
+/// when it cannot tell, e.g. on a timeout (guessing "taken" on its own failure
+/// would block a perfectly good binding for a reason unrelated to the binding).
+/// </summary>
+public interface IHotkeyAvailability
+{
+    bool IsAvailable(HotkeyBinding binding);
+}
+
 public interface IAudioCapture : IDisposable
 {
     void Start();
