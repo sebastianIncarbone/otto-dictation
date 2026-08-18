@@ -89,12 +89,28 @@ public sealed partial class MainViewModel : ObservableObject
 
     public bool IsEmpty => Notes.Count == 0;
 
-    /// <summary>See <see cref="StatusText"/> — same alert-first rule, same reason.</summary>
-    public string EmptyMessage => HasHotkeyAlert
-        ? HotkeyAlertMessage
-        : string.IsNullOrWhiteSpace(Search)
-            ? $"Todavía no dictaste nada.\nMantené {ListeningLabel} en cualquier programa y hablá."
-            : $"Nada que coincida con «{Search}».";
+    /// <summary>
+    /// Same alert rule as <see cref="StatusText"/>, but a search wins over it.
+    ///
+    /// <para>
+    /// The order matters and the obvious one was wrong. This slot describes the list,
+    /// and while a search is active the only thing that explains an empty list is that
+    /// the search matched nothing — putting the hotkey alert here instead leaves the
+    /// user with no idea their query came up empty, and repeats a sentence already on
+    /// screen in the header two lines up.
+    /// </para>
+    ///
+    /// <para>
+    /// With no search, the alert does belong here: the default text tells the user to
+    /// hold a hotkey that failed to register, and an instruction they cannot follow is
+    /// worse than none.
+    /// </para>
+    /// </summary>
+    public string EmptyMessage => !string.IsNullOrWhiteSpace(Search)
+        ? $"Nada que coincida con «{Search}»."
+        : HasHotkeyAlert
+            ? HotkeyAlertMessage
+            : $"Todavía no dictaste nada.\nMantené {ListeningLabel} en cualquier programa y hablá.";
 
     /// <summary>
     /// <c>DictationPipeline</c> fires <c>StateChanged</c> from whatever thread the

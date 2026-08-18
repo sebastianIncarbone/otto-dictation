@@ -106,4 +106,31 @@ public class MainViewModelStateTests
         Assert.DoesNotContain("ya lo está usando", view.StatusText);
         Assert.Contains("No se pudo activar el atajo", view.StatusText);
     }
+
+    [Fact]
+    public void Con_una_busqueda_activa_la_lista_vacia_habla_de_la_busqueda_y_no_del_atajo()
+    {
+        // The alert belongs in the header, and it is already there. Repeating it in the
+        // list slot costs the user the only signal that their query matched nothing.
+        var view = Build(BuildPipeline());
+        view.ShowHotkeyFailure(alreadyInUse: true);
+
+        view.Search = "reunión";
+
+        Assert.True(view.HasHotkeyAlert);
+        Assert.Contains("reunión", view.EmptyMessage);
+        Assert.DoesNotContain("No se pudo activar el atajo", view.EmptyMessage);
+    }
+
+    [Fact]
+    public void Sin_busqueda_la_lista_vacia_no_manda_a_usar_un_atajo_que_no_se_registro()
+    {
+        // The default text tells the user to hold a hotkey that is not listening.
+        var view = Build(BuildPipeline());
+
+        view.ShowHotkeyFailure(alreadyInUse: true);
+
+        Assert.DoesNotContain("Mantené", view.EmptyMessage);
+        Assert.Equal(view.StatusText, view.EmptyMessage);
+    }
 }
