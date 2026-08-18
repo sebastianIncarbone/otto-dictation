@@ -65,6 +65,17 @@ public sealed class DictationPipeline : IDisposable
     /// </summary>
     public event Action? HeardNothing;
 
+    /// <summary>
+    /// What Otto actually registered with Windows, as opposed to whatever is currently
+    /// sitting in the settings editor. Null until <see cref="StartAsync"/> has
+    /// successfully called <see cref="IHotkeyService.Register"/> — including while a
+    /// failed registration has left the pipeline stuck in <see cref="DictationState.Loading"/>.
+    /// This is the only source of truth the UI is allowed to read for "what is Otto
+    /// listening on right now"; the settings editor's pending value must never be
+    /// confusable with it.
+    /// </summary>
+    public HotkeyBinding? RegisteredHotkey { get; private set; }
+
     public async Task StartAsync(HotkeyBinding binding, CancellationToken cancellationToken = default)
     {
         Transition(DictationState.Loading);
@@ -80,6 +91,7 @@ public sealed class DictationPipeline : IDisposable
         hotkey.Pressed += OnPressed;
         hotkey.Released += OnReleased;
         hotkey.Register(binding);
+        RegisteredHotkey = binding;
 
         Transition(DictationState.Idle);
     }

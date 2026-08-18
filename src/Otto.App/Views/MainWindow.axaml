@@ -33,6 +33,20 @@
         <StackPanel Spacing="2">
           <TextBlock Text="Otto" FontSize="20" FontWeight="SemiBold" />
           <TextBlock Text="{Binding StatusText}" FontSize="12" Opacity="0.7" />
+
+          <!-- El aviso de reinicio vive acá, en el encabezado, y no adentro de la
+               tarjeta de configuración: guardar cierra esa tarjeta, así que el aviso
+               se escondía justo en el momento en que empezaba a ser cierto. Y el
+               encabezado sigue anunciando el atajo viejo — que es el correcto, es el
+               que está escuchando — con lo cual sin esta línea el usuario aprieta la
+               combinación nueva, no pasa nada, y la interfaz lo desmiente.
+
+               HotkeyChangePending es lo guardado contra lo registrado, así que esto
+               se apaga solo apenas Otto arranca de nuevo. No hay que bajarlo a mano,
+               y no puede quedar prendido mintiendo. -->
+          <TextBlock Text="El atajo nuevo se activa recién en el próximo inicio de Otto."
+                     FontSize="12" Opacity="0.7" TextWrapping="Wrap"
+                     IsVisible="{Binding HotkeyChangePending}" />
         </StackPanel>
 
         <Button Grid.Column="1" Content="Configuración" VerticalAlignment="Center"
@@ -48,9 +62,24 @@
       <StackPanel Spacing="12">
         <TextBlock Classes="eyebrow" Text="CONFIGURACIÓN" />
 
+        <!-- Atajo: nunca texto libre. Lo único que puede llegar a Modifiers/VirtualKey es
+             una combinación realmente presionada y capturada por MainViewModel.OfferKey —
+             ver HotkeyLabels.cs y el manejador de KeyDown en MainWindow.axaml.cs. -->
         <StackPanel Spacing="4">
           <TextBlock Text="Atajo" FontSize="12" Opacity="0.7" />
-          <TextBox Text="{Binding HotkeyLabel}" />
+
+          <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding !IsCapturingHotkey}">
+            <TextBlock Text="{Binding HotkeyLabel}" VerticalAlignment="Center" FontWeight="SemiBold" />
+            <Button Grid.Column="1" Content="Cambiar" Command="{Binding StartHotkeyCaptureCommand}" />
+          </Grid>
+
+          <StackPanel Spacing="6" IsVisible="{Binding IsCapturingHotkey}">
+            <Border Classes="card" Padding="8">
+              <TextBlock Text="{Binding HotkeyHint}" TextWrapping="Wrap" />
+            </Border>
+            <Button Content="Cancelar" HorizontalAlignment="Left" Command="{Binding CancelHotkeyCaptureCommand}" />
+          </StackPanel>
+
         </StackPanel>
 
         <StackPanel Spacing="4">
