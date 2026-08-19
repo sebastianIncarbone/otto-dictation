@@ -26,6 +26,17 @@
   <FontFamily x:Key="OttoFontDisplay">avares://Otto.App/Assets/fonts#Archivo Expanded ExtraBold</FontFamily>
   <FontFamily x:Key="OttoFontMono">avares://Otto.App/Assets/fonts#JetBrains Mono</FontFamily>
 
+  <!-- The design's radius scale. Here as tokens rather than as numbers written at
+       each call site, because that is exactly how they drifted: the controls were
+       given the design's 12 and the cards kept an inherited 8, which left every
+       button rounder than the card containing it. A scale with names makes the
+       wrong one visible when you pick it. -->
+  <CornerRadius x:Key="OttoRadiusXs">6</CornerRadius>
+  <CornerRadius x:Key="OttoRadiusSm">8</CornerRadius>
+  <CornerRadius x:Key="OttoRadiusMd">12</CornerRadius>
+  <CornerRadius x:Key="OttoRadiusLg">20</CornerRadius>
+  <CornerRadius x:Key="OttoRadiusXl">28</CornerRadius>
+
   <ResourceDictionary.ThemeDictionaries>
 
     <ResourceDictionary x:Key="Light">
@@ -55,6 +66,12 @@
       <SolidColorBrush x:Key="OttoOk" Color="#1E9E5A" />
       <SolidColorBrush x:Key="OttoWarn" Color="#D97A08" />
       <SolidColorBrush x:Key="OttoDanger" Color="#D0021B" />
+
+      <!-- 0 1px 2px rgba(12,13,16,.06) and 0 4px 16px rgba(12,13,16,.08). These
+           are what tell a card apart from the page it sits on once both are
+           nearly white; without them the light theme has one flat surface. -->
+      <BoxShadows x:Key="OttoShadowSm">0 1 2 0 #0F0C0D10</BoxShadows>
+      <BoxShadows x:Key="OttoShadowMd">0 4 16 0 #140C0D10</BoxShadows>
     </ResourceDictionary>
 
     <ResourceDictionary x:Key="Dark">
@@ -83,6 +100,11 @@
       <SolidColorBrush x:Key="OttoOk" Color="#2FBE72" />
       <SolidColorBrush x:Key="OttoWarn" Color="#F0A03C" />
       <SolidColorBrush x:Key="OttoDanger" Color="#FF2438" />
+
+      <!-- Far heavier than the light theme's — rgba(0,0,0,.4) and .45. A shadow
+           tuned for white is invisible on #0C0D10. -->
+      <BoxShadows x:Key="OttoShadowSm">0 1 2 0 #66000000</BoxShadows>
+      <BoxShadows x:Key="OttoShadowMd">0 4 16 0 #73000000</BoxShadows>
     </ResourceDictionary>
 
   </ResourceDictionary.ThemeDictionaries>

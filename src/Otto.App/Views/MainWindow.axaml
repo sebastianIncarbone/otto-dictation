@@ -7,7 +7,7 @@
         Title="Otto"
         Width="560" Height="700"
         MinWidth="420" MinHeight="420"
-        Background="{DynamicResource OttoCard}"
+        Background="{DynamicResource OttoPage}"
         FontFamily="{DynamicResource OttoFontUi}"
         WindowStartupLocation="CenterScreen">
 
@@ -42,13 +42,6 @@
       <Setter Property="FontSize" Value="11" />
       <Setter Property="LetterSpacing" Value="1" />
       <Setter Property="Opacity" Value="0.6" />
-    </Style>
-    <Style Selector="Border.card">
-      <Setter Property="Background" Value="{DynamicResource ThemeBackgroundBrush}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorderMidBrush}" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="8" />
-      <Setter Property="Padding" Value="14" />
     </Style>
   </Window.Styles>
 

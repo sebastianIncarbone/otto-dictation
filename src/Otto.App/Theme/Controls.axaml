@@ -116,4 +116,24 @@
     <Setter Property="Foreground" Value="{DynamicResource OttoText}" />
   </Style>
 
+  <!-- Cards. The design's .card, and it belongs here with the rest of the system
+       rather than inside the one window that happens to use it — which is how it
+       broke. Defined in MainWindow, it was not in view when the tokens landed and
+       kept pointing at Fluent's ThemeBackgroundBrush; the window meanwhile moved
+       to the card colour. In the light theme that put a white card on a white
+       window, so the page/card/sunken separation the whole design rests on
+       flattened into a single surface with a stray grey outline.
+
+       The border is the *soft* one: the design reaches for its border-2 on cards
+       and border-1 everywhere else. On a surface already lifted by its shadow,
+       the heavier line reads as a box drawn around the content. -->
+  <Style Selector="Border.card">
+    <Setter Property="Background" Value="{DynamicResource OttoCard}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource OttoBorderSoft}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{DynamicResource OttoRadiusLg}" />
+    <Setter Property="Padding" Value="16" />
+    <Setter Property="BoxShadow" Value="{DynamicResource OttoShadowSm}" />
+  </Style>
+
 </Styles>
