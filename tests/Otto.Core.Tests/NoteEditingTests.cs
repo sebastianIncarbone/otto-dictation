@@ -26,11 +26,11 @@ public class NoteEditingTests
     }
 
     [Fact]
-    public void Abrirla_la_pone_en_edicion()
+    public void Tocarla_la_pone_en_edicion()
     {
         var note = Build();
 
-        note.BeginEditCommand.Execute(null);
+        note.ActivateCommand.Execute(null);
 
         Assert.True(note.IsEditing);
     }
@@ -39,7 +39,7 @@ public class NoteEditingTests
     public void Escape_descarta_lo_escrito_y_vuelve_a_lectura()
     {
         var note = Build(title: "Original", text: "Texto original.");
-        note.BeginEditCommand.Execute(null);
+        note.ActivateCommand.Execute(null);
 
         note.Title = "Otra cosa";
         note.Text = "Otro texto.";
@@ -56,7 +56,7 @@ public class NoteEditingTests
     public async Task Guardar_deja_la_nota_en_lectura_y_limpia()
     {
         var note = Build();
-        note.BeginEditCommand.Execute(null);
+        note.ActivateCommand.Execute(null);
         note.Text = "Corregido.";
 
         await note.SaveCommand.ExecuteAsync(null);
@@ -70,7 +70,7 @@ public class NoteEditingTests
     public async Task Despues_de_guardar_escape_vuelve_a_lo_guardado_y_no_a_lo_viejo()
     {
         var note = Build(text: "Texto original.");
-        note.BeginEditCommand.Execute(null);
+        note.ActivateCommand.Execute(null);
 
         note.Text = "Primera corrección.";
         await note.SaveCommand.ExecuteAsync(null);
@@ -78,7 +78,7 @@ public class NoteEditingTests
         // Lo guardado es el nuevo punto de retorno. Si CancelEdit volviera a lo que
         // trajo el repositorio al construirse, Escape desharía una edición que ya
         // está en disco y la pantalla mentiría sobre lo que hay guardado.
-        note.BeginEditCommand.Execute(null);
+        note.ActivateCommand.Execute(null);
         note.Text = "Segunda, sin guardar.";
         note.CancelEditCommand.Execute(null);
 
@@ -89,7 +89,7 @@ public class NoteEditingTests
     public void Cerrar_el_editor_por_ir_a_otra_nota_no_pisa_lo_no_guardado()
     {
         var note = Build();
-        note.BeginEditCommand.Execute(null);
+        note.ActivateCommand.Execute(null);
         note.Text = "A medio escribir.";
 
         note.CloseEditor();
@@ -103,7 +103,7 @@ public class NoteEditingTests
     public void Cerrar_el_editor_sin_cambios_si_cierra()
     {
         var note = Build();
-        note.BeginEditCommand.Execute(null);
+        note.ActivateCommand.Execute(null);
 
         note.CloseEditor();
 

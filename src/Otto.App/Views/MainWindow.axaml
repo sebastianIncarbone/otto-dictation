@@ -99,7 +99,34 @@
          distingue "estoy escribiendo acá" del resto de la lista, ahora que la
          fila no tiene ni borde ni elevación con los que hacerlo. -->
     <Style Selector="Border.note.editing">
+      <Setter Property="Background" Value="{DynamicResource OttoAccentWash}" />
+    </Style>
+
+    <!-- La fila elegida va más fuerte que la que se está editando, y el diseño las
+         separa a propósito: editar es algo que le pasa a una nota sola y se ve por
+         la forma del renglón, mientras que elegir es algo que le pasa a varias y
+         sólo se ve por el color. Definida después para que gane si alguna vez
+         llegaran a coincidir. -->
+    <Style Selector="Border.note.picked">
       <Setter Property="Background" Value="{DynamicResource OttoAccentSoft}" />
+    </Style>
+
+    <!-- La casilla: un cuadrado, no un círculo ni el CheckBox de Fluent. Cuadrada
+         porque elige varias cosas, y dibujada acá porque el control del sistema
+         trae su propio tamaño, su propio radio y su propia animación, ninguno de
+         los cuales es el del diseño. -->
+    <Style Selector="Border.tick">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="VerticalAlignment" Value="Top" />
+      <Setter Property="Margin" Value="0,2,12,0" />
+      <Setter Property="Background" Value="{DynamicResource OttoSunken}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource OttoBorder}" />
+      <Setter Property="BorderThickness" Value="1.5" />
+    </Style>
+    <Style Selector="Border.tick.on">
+      <Setter Property="Background" Value="{DynamicResource OttoAccent}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource OttoAccent}" />
     </Style>
 
     <!-- El bloque de lectura entero es el botón que abre la edición: no hay un
@@ -329,9 +356,59 @@
              la lista por una línea. Filtrar es una acción sobre la lista entera,
              no un elemento más adentro de ella. -->
         <Border DockPanel.Dock="Top" Padding="20,12"
-                BorderBrush="{DynamicResource OttoBorder}" BorderThickness="0,0,0,1">
-          <TextBox PlaceholderText="Buscar en tus notas" Text="{Binding Search}"
-                   Classes.filtering="{Binding IsSearching}" />
+                BorderBrush="{DynamicResource OttoBorder}" BorderThickness="0,0,0,1"
+                IsVisible="{Binding !IsSelecting}">
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBox PlaceholderText="Buscar en tus notas" Text="{Binding Search}"
+                     Classes.filtering="{Binding IsSearching}" />
+            <Button Grid.Column="1" Content="Seleccionar" Margin="8,0,0,0" FontSize="12.5"
+                    Command="{Binding StartSelectingCommand}" />
+          </Grid>
+        </Border>
+
+        <!-- Elegir notas reemplaza al buscador en vez de sumarse abajo: mientras
+             estás eligiendo, filtrar la lista cambiaría el conjunto sobre el que
+             venís decidiendo, y "Todas" pasaría a significar otra cosa a mitad de
+             camino. -->
+        <Border DockPanel.Dock="Top" Padding="20,12"
+                BorderBrush="{DynamicResource OttoBorder}" BorderThickness="0,0,0,1"
+                IsVisible="{Binding IsSelecting}">
+          <Grid ColumnDefinitions="*,Auto,Auto">
+            <TextBlock Text="{Binding SelectionLabel}" FontSize="13" FontWeight="SemiBold"
+                       VerticalAlignment="Center" />
+            <Button Grid.Column="1" Classes="ghost" Content="Todas" FontSize="12.5"
+                    Command="{Binding SelectAllCommand}" />
+            <Button Grid.Column="2" Content="Cancelar" Margin="8,0,0,0" FontSize="12.5"
+                    Command="{Binding CancelSelectingCommand}" />
+          </Grid>
+        </Border>
+
+        <!-- Las acciones del lote van abajo, lejos del renglón que se toca para
+             elegir. El diseño las separa con una regla de 2px, el doble que la del
+             buscador: es un borde entre la lista y algo que actúa sobre ella. -->
+        <Border DockPanel.Dock="Bottom" Padding="20,12"
+                BorderBrush="{DynamicResource OttoBorder}" BorderThickness="0,2,0,0"
+                IsVisible="{Binding IsSelecting}">
+          <Grid>
+            <Button Classes="accent" FontSize="12.5" HorizontalAlignment="Right"
+                    Content="{Binding DeleteSelectedLabel}"
+                    Command="{Binding ConfirmDeleteSelectedCommand}"
+                    IsEnabled="{Binding HasSelection}"
+                    IsVisible="{Binding !IsConfirmingDeleteSelected}" />
+
+            <!-- El segundo paso reemplaza al primero en el mismo lugar: el botón
+                 que confirma no puede quedar al lado del que abrió la pregunta. -->
+            <Grid ColumnDefinitions="*,Auto,Auto"
+                  IsVisible="{Binding IsConfirmingDeleteSelected}">
+              <TextBlock Text="{Binding DeleteSelectedWarning}" FontSize="12.5"
+                         VerticalAlignment="Center" TextWrapping="Wrap"
+                         Foreground="{DynamicResource OttoDanger}" />
+              <Button Grid.Column="1" Classes="accent" FontSize="12.5" Margin="12,0,0,0"
+                      Content="Sí, borrar" Command="{Binding DeleteSelectedCommand}" />
+              <Button Grid.Column="2" Content="Cancelar" FontSize="12.5" Margin="8,0,0,0"
+                      Command="{Binding CancelDeleteSelectedCommand}" />
+            </Grid>
+          </Grid>
         </Border>
 
         <!-- La lista y el vacío se turnan en el mismo lugar. -->
@@ -350,12 +427,25 @@
           <ItemsControl ItemsSource="{Binding Notes}">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:NoteViewModel">
-                <Border Classes="note" Classes.editing="{Binding IsEditing}">
-                  <StackPanel>
+                <Border Classes="note" Classes.editing="{Binding IsEditing}"
+                        Classes.picked="{Binding IsSelected}">
+                  <Grid ColumnDefinitions="Auto,*">
+
+                    <!-- Sin modo selección la casilla no ocupa lugar: IsVisible en
+                         falso la saca de la medición, así que la columna Auto queda
+                         en cero y el texto arranca en el margen de siempre. -->
+                    <Border Grid.Column="0" Classes="tick" Classes.on="{Binding IsSelected}"
+                            IsVisible="{Binding IsSelecting}">
+                      <Path Data="M 1.5,5 L 4.5,8 L 9.5,1.5" Stroke="White" StrokeThickness="2"
+                            StrokeLineCap="Round" StrokeJoin="Round"
+                            IsVisible="{Binding IsSelected}" />
+                    </Border>
+
+                  <StackPanel Grid.Column="1">
 
                     <!-- Lectura -->
                     <StackPanel Spacing="6" IsVisible="{Binding !IsEditing}">
-                      <Button Classes="note-open" Command="{Binding BeginEditCommand}">
+                      <Button Classes="note-open" Command="{Binding ActivateCommand}">
                         <StackPanel Spacing="6">
 
                           <!-- El título va en la cara expandida del diseño, sin
@@ -389,7 +479,12 @@
                         </StackPanel>
                       </Button>
 
-                      <StackPanel Orientation="Horizontal" Spacing="2">
+                      <!-- Mientras se eligen notas, las acciones de una sola no
+                           existen: copiar o eliminar la fila que estás por marcar
+                           es lo contrario de lo que viniste a hacer, y el lote ya
+                           tiene su propia barra abajo. -->
+                      <StackPanel Orientation="Horizontal" Spacing="2"
+                                  IsVisible="{Binding !IsSelecting}">
                         <Button Classes="mini quiet" Content="{Binding CopyLabel}"
                                 Command="{Binding CopyCommand}" />
                         <Button Classes="mini quiet" Content="Eliminar"
@@ -437,6 +532,7 @@
                     </StackPanel>
 
                   </StackPanel>
+                  </Grid>
                 </Border>
               </DataTemplate>
             </ItemsControl.ItemTemplate>

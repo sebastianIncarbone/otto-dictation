@@ -145,6 +145,130 @@ public sealed partial class MainViewModel : ObservableObject
     public bool IsSearching => !string.IsNullOrWhiteSpace(Search);
 
     /// <summary>
+    /// Whether the list is picking notes rather than reading them.
+    ///
+    /// A mode rather than a permanent row of checkboxes, because acting on several
+    /// notes at once is the rare thing here and reading them is the common one.
+    /// </summary>
+    [ObservableProperty] private bool isSelecting;
+
+    /// <summary>
+    /// Pushed down to every note, and cleared on the way out. Each row binds to its
+    /// own copy — the alternative is every row reaching up through the visual tree
+    /// for the window's data context, which is the same fact expressed as a longer
+    /// and more fragile binding.
+    /// </summary>
+    partial void OnIsSelectingChanged(bool value)
+    {
+        foreach (var note in Notes) note.IsSelecting = value;
+
+        RefreshSelection();
+    }
+
+    public int SelectedCount => Notes.Count(note => note.IsSelected);
+
+    public bool HasSelection => SelectedCount > 0;
+
+    public string SelectionLabel => SelectedCount == 1
+        ? "1 nota seleccionada"
+        : $"{SelectedCount} notas seleccionadas";
+
+    /// <summary>The delete button names its own blast radius rather than just "Eliminar".</summary>
+    public string DeleteSelectedLabel => $"Eliminar {SelectedCount}";
+
+    /// <summary>
+    /// The second step before a bulk delete.
+    ///
+    /// <para>
+    /// Not in the design, which draws the button and nothing after it. Added
+    /// because this repository already took a position on destructive actions that
+    /// name a number — the uninstall asks twice, and the reason written next to it
+    /// is that "borrar mis datos" is abstract and "borrar 340 notas" is not. One
+    /// click that removes ninety dictations with no way back is the same case, and
+    /// deleting one note from its own row is not: that one is a row somebody is
+    /// looking straight at.
+    /// </para>
+    /// </summary>
+    [ObservableProperty] private bool isConfirmingDeleteSelected;
+
+    /// <inheritdoc cref="IsConfirmingDeleteSelected"/>
+    public string DeleteSelectedWarning => SelectedCount == 1
+        ? "Se borra 1 nota y no se puede recuperar."
+        : $"Se borran {SelectedCount} notas y no se pueden recuperar.";
+
+    /// <inheritdoc cref="IsConfirmingDeleteSelected"/>
+    [RelayCommand]
+    private void ConfirmDeleteSelected() => IsConfirmingDeleteSelected = true;
+
+    /// <inheritdoc cref="IsConfirmingDeleteSelected"/>
+    [RelayCommand]
+    private void CancelDeleteSelected() => IsConfirmingDeleteSelected = false;
+
+    private void RefreshSelection()
+    {
+        OnPropertyChanged(nameof(SelectedCount));
+        OnPropertyChanged(nameof(HasSelection));
+        OnPropertyChanged(nameof(SelectionLabel));
+        OnPropertyChanged(nameof(DeleteSelectedLabel));
+        OnPropertyChanged(nameof(DeleteSelectedWarning));
+
+        // Changing the set invalidates the question: "se borran 3 notas" was asked
+        // about three particular notes, and answering yes to it after a fourth was
+        // ticked would be answering something nobody was asked.
+        IsConfirmingDeleteSelected = false;
+    }
+
+    /// <summary>
+    /// Enters selection mode, closing whatever was open first. An editor left
+    /// underneath would be a row in two states at once, and its Guardar would sit
+    /// among a set of buttons that act on entirely different notes.
+    /// </summary>
+    [RelayCommand]
+    private void StartSelecting()
+    {
+        foreach (var note in Notes) note.CloseEditor();
+
+        IsSelecting = true;
+    }
+
+    [RelayCommand]
+    private void CancelSelecting() => IsSelecting = false;
+
+    /// <summary>
+    /// Everything currently listed, which during a search is the search's result
+    /// and not the whole database. "Todas" has to mean the same set the person can
+    /// see, or the count under it describes notes that are not on screen.
+    /// </summary>
+    [RelayCommand]
+    private void SelectAll()
+    {
+        foreach (var note in Notes) note.IsSelected = true;
+    }
+
+    /// <summary>
+    /// Deletes the picked notes, one repository call each.
+    ///
+    /// The collection is copied first: removing from <see cref="Notes"/> while
+    /// walking it is the classic way to skip every second item, and here the items
+    /// being skipped are the ones somebody asked to delete.
+    /// </summary>
+    [RelayCommand]
+    private async Task DeleteSelectedAsync()
+    {
+        foreach (var note in Notes.Where(note => note.IsSelected).ToList())
+        {
+            await repository.DeleteAsync(note.Id);
+
+            Forget(note);
+            Notes.Remove(note);
+        }
+
+        IsConfirmingDeleteSelected = false;
+        IsSelecting = false;
+        Refresh();
+    }
+
+    /// <summary>
     /// How many notes the search found, shown above them.
     ///
     /// A filtered list looks exactly like a short one, and without this the only
@@ -308,10 +432,32 @@ public sealed partial class MainViewModel : ObservableObject
     /// </summary>
     private NoteViewModel Wrap(Note note)
     {
-        var view = new NoteViewModel(note, repository, clipboard) { Query = Search };
+        var view = new NoteViewModel(note, repository, clipboard)
+        {
+            Query = Search,
+
+            // A note arriving mid-selection — a dictation saved while the list is
+            // being picked through — joins the mode rather than showing up as the
+            // one row without a checkbox.
+            IsSelecting = IsSelecting,
+        };
+
         view.DeleteRequested += OnDeleteRequested;
         view.EditStarted += OnEditStarted;
+        view.SelectionChanged += RefreshSelection;
         return view;
+    }
+
+    /// <summary>
+    /// Unsubscribes everything <see cref="Wrap"/> attached. One place, because a
+    /// handler dropped from one of the two removal paths and not the other is a
+    /// note that keeps answering after it is gone.
+    /// </summary>
+    private void Forget(NoteViewModel note)
+    {
+        note.DeleteRequested -= OnDeleteRequested;
+        note.EditStarted -= OnEditStarted;
+        note.SelectionChanged -= RefreshSelection;
     }
 
     /// <summary>
@@ -334,9 +480,8 @@ public sealed partial class MainViewModel : ObservableObject
     private async void OnDeleteRequested(NoteViewModel note)
     {
         await repository.DeleteAsync(note.Id);
-        note.DeleteRequested -= OnDeleteRequested;
-        note.EditStarted -= OnEditStarted;
 
+        Forget(note);
         Notes.Remove(note);
         Refresh();
     }
@@ -359,6 +504,7 @@ public sealed partial class MainViewModel : ObservableObject
         RefreshEmpty();
         OnPropertyChanged(nameof(IsSearching));
         OnPropertyChanged(nameof(ResultCount));
+        RefreshSelection();
     }
 
     [RelayCommand]

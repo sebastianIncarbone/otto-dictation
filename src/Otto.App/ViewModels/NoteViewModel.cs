@@ -86,6 +86,32 @@ public sealed partial class NoteViewModel : ObservableObject
     [ObservableProperty] private bool isEditing;
     [ObservableProperty] private string copyLabel = "Copiar";
 
+    /// <summary>
+    /// Whether the list as a whole is picking notes rather than reading them. Held
+    /// per note because that is what the row binds to, and pushed down by the list
+    /// when the mode changes.
+    /// </summary>
+    [ObservableProperty] private bool isSelecting;
+
+    /// <summary>Whether this note is one of the picked ones.</summary>
+    [ObservableProperty] private bool isSelected;
+
+    /// <summary>Raised when this note joins or leaves the selection.</summary>
+    public event Action? SelectionChanged;
+
+    partial void OnIsSelectedChanged(bool value) => SelectionChanged?.Invoke();
+
+    /// <summary>
+    /// Leaving selection mode also leaves the selection behind. A tick that
+    /// survives the mode that made it would come back the next time somebody
+    /// pressed Seleccionar, with notes marked that they picked minutes ago and
+    /// have no reason to remember.
+    /// </summary>
+    partial void OnIsSelectingChanged(bool value)
+    {
+        if (!value) IsSelected = false;
+    }
+
     partial void OnTitleChanged(string value)
     {
         IsDirty = true;
@@ -99,13 +125,30 @@ public sealed partial class NoteViewModel : ObservableObject
     public event Action<NoteViewModel>? EditStarted;
 
     /// <summary>
+    /// What clicking the row means, which depends on what the list is doing.
+    ///
+    /// <para>
     /// Reading and editing are two different things, and the design draws them
     /// that way: a note is prose until someone decides to change it, and only then
-    /// does it become a pair of fields.
+    /// does it become a pair of fields. But while the list is picking notes, the
+    /// same click is a tick — opening an editor over a row somebody is trying to
+    /// select would be answering a different question from the one they asked.
+    /// </para>
+    /// <para>
+    /// The branch lives here rather than in the view because a Button binds one
+    /// command, and swapping which one in XAML would mean two buttons stacked on
+    /// the same row, each hiding the other.
+    /// </para>
     /// </summary>
     [RelayCommand]
-    private void BeginEdit()
+    private void Activate()
     {
+        if (IsSelecting)
+        {
+            IsSelected = !IsSelected;
+            return;
+        }
+
         IsEditing = true;
         EditStarted?.Invoke(this);
     }

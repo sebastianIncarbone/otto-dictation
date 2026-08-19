@@ -58,6 +58,11 @@
       <SolidColorBrush x:Key="OttoAccentPress" Color="#8F0213" />
       <SolidColorBrush x:Key="OttoAccentSoft" Color="#1AD0021B" />
 
+      <!-- Fainter still, at 4%. The design tints an open editor and a picked row
+           with different strengths, and they have to stay different: one says
+           "you are typing here", the other says "this is coming with you". -->
+      <SolidColorBrush x:Key="OttoAccentWash" Color="#0AD0021B" />
+
       <!-- The status line darkens its accent so it stays readable as small text on
            a light background; the glyph beside it keeps the pure state colour. -->
       <SolidColorBrush x:Key="OttoStatusListening" Color="#B10217" />
@@ -102,6 +107,10 @@
       <SolidColorBrush x:Key="OttoAccentHover" Color="#FF4557" />
       <SolidColorBrush x:Key="OttoAccentPress" Color="#E01D30" />
       <SolidColorBrush x:Key="OttoAccentSoft" Color="#24FF2438" />
+
+      <!-- Same ratio as the light theme's 10 to 4, applied to this theme's own
+           accent-soft rather than to the light one. -->
+      <SolidColorBrush x:Key="OttoAccentWash" Color="#0EFF2438" />
 
       <!-- Lightened rather than darkened here, for the same readability reason. -->
       <SolidColorBrush x:Key="OttoStatusListening" Color="#FF4557" />
