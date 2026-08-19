@@ -9,7 +9,10 @@
         MinWidth="420" MinHeight="420"
         Background="{DynamicResource OttoPage}"
         FontFamily="{DynamicResource OttoFontUi}"
-        WindowStartupLocation="CenterScreen">
+        WindowStartupLocation="CenterScreen"
+
+        ExtendClientAreaToDecorationsHint="True"
+        WindowDecorations="None">
 
   <Window.Styles>
     <!-- El logotipo, en Archivo expandida peso 800 como pide el diseño. El peso vive
@@ -42,6 +45,33 @@
       <Setter Property="FontSize" Value="11" />
       <Setter Property="LetterSpacing" Value="1" />
       <Setter Property="Opacity" Value="0.6" />
+    </Style>
+
+    <!-- Los botones de la barra de título: 40 de ancho por los 34 de alto de la
+         barra, sin radio ni borde. Son parte del marco de la ventana, no de la
+         interfaz que vive adentro, y el marco de Windows no tiene esquinas
+         redondeadas en sus botones. -->
+    <Style Selector="Button.chrome">
+      <Setter Property="Width" Value="40" />
+      <Setter Property="Height" Value="34" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Opacity" Value="0.5" />
+    </Style>
+    <Style Selector="Button.chrome:pointerover">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Button.chrome:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource OttoBorderSoft}" />
+    </Style>
+
+    <!-- Cerrar en rojo al pasar por encima, como toda ventana de Windows. Es la
+         única de las dos que hace algo que el usuario podría no querer. -->
+    <Style Selector="Button.chrome.close:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource OttoAccent}" />
     </Style>
 
     <!-- El "3 NOTAS" arriba de una lista filtrada. Separado del eyebrow porque el
@@ -187,6 +217,40 @@
   </Window.Styles>
 
   <DockPanel LastChildFill="True">
+
+    <!-- Barra de título propia. La del sistema venía en azul de Windows arriba de
+         una app que por lo demás es negra o gris, y era lo único en pantalla que el
+         rediseño no tocaba.
+
+         Los ElementRole no son decorativos: son lo que le dice a Avalonia cuál de
+         estos elementos es la barra y cuáles los botones, y con eso el arrastre, el
+         doble clic para maximizar y el ajuste a los bordes de la pantalla los
+         maneja el sistema. Hechos a mano con BeginMoveDrag la ventana se mueve pero
+         pierde todo lo demás. Redimensionar por los bordes tampoco cambia: el marco
+         sigue estando, lo que cambia es hasta dónde llega lo que dibujamos. -->
+    <Border DockPanel.Dock="Top" Height="34" Background="Transparent"
+            WindowDecorationProperties.ElementRole="TitleBar">
+      <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+
+        <StackPanel Orientation="Horizontal" Spacing="8" Margin="14,0,0,0"
+                    VerticalAlignment="Center" Opacity="0.6">
+          <Rectangle Width="8" Height="8" Fill="{DynamicResource OttoAccent}" />
+          <TextBlock Text="Otto" FontSize="11" VerticalAlignment="Center" />
+        </StackPanel>
+
+        <!-- Sin maximizar: el doble clic en la barra ya hace eso, y el diseño dibuja
+             dos botones y no tres. -->
+        <Button Grid.Column="2" Classes="chrome" Click="OnMinimiseClick"
+                WindowDecorationProperties.ElementRole="MinimizeButton">
+          <Path Data="M 0,0 L 10,0" Stroke="{DynamicResource OttoText}" StrokeThickness="1" />
+        </Button>
+        <Button Grid.Column="3" Classes="chrome close" Click="OnCloseClick"
+                WindowDecorationProperties.ElementRole="CloseButton">
+          <Path Data="M 0,0 L 10,10 M 10,0 L 0,10"
+                Stroke="{DynamicResource OttoText}" StrokeThickness="1" />
+        </Button>
+      </Grid>
+    </Border>
 
     <!-- Encabezado: estado siempre visible, porque es lo primero que se pregunta
          cualquiera que abre una app que corre en segundo plano.
