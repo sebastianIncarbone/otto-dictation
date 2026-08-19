@@ -27,6 +27,13 @@ public sealed record Settings
     public bool ShowCharacter { get; init; } = true;
 
     /// <summary>
+    /// Which overlay is shown when <see cref="ShowCharacter"/> is on. Defaults to
+    /// the character, so an existing settings file with no such field keeps the
+    /// overlay it already had rather than silently switching to the minimal one.
+    /// </summary>
+    public CharacterAppearance CharacterAppearance { get; init; } = CharacterAppearance.Character;
+
+    /// <summary>
     /// Corrects the transcription to Rioplatense with a local model. On by default
     /// because it degrades to nothing when no model is installed, and measured at
     /// a 28% relative reduction in word error when one is.

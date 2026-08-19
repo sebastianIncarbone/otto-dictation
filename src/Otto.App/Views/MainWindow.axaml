@@ -95,6 +95,24 @@
         <CheckBox Content="Arrancar con Windows" IsChecked="{Binding StartWithWindows}" />
         <CheckBox Content="Mostrar el personaje en pantalla" IsChecked="{Binding ShowCharacter}" />
 
+        <!-- Indented under the switch above and disabled with it, because choosing
+             between appearances of something that is not on screen says nothing.
+             The options are bound to one enum through a boolean each, so "none"
+             and "more than one" are unrepresentable.
+
+             Ordered by how much attention each one asks for, loudest first. -->
+        <StackPanel Spacing="4" Margin="26,0,0,0" IsEnabled="{Binding ShowCharacter}">
+          <TextBlock Text="Apariencia" FontSize="12" Opacity="0.7" />
+          <StackPanel Orientation="Horizontal" Spacing="16">
+            <RadioButton GroupName="Apariencia" Content="Personaje"
+                         IsChecked="{Binding IsCharacterAppearance}" />
+            <RadioButton GroupName="Apariencia" Content="Discreto"
+                         IsChecked="{Binding IsDiscreetAppearance}" />
+            <RadioButton GroupName="Apariencia" Content="Punto mínimo"
+                         IsChecked="{Binding IsMinimalAppearance}" />
+          </StackPanel>
+        </StackPanel>
+
         <!-- Apagado de fábrica: Otto promete funcionar sin internet, así que la
              única llamada a la red que existe la pide la persona, no la app. -->
         <CheckBox Content="Avisarme si hay una versión nueva al arrancar"

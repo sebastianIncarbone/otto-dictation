@@ -20,6 +20,13 @@ public partial class App : Application
     private NativeMenuItem? characterItem;
 
     /// <summary>
+    /// Which overlay to build. Held here rather than read from
+    /// <see cref="Settings"/> at the point of use, because that instance is the
+    /// snapshot taken at startup and goes stale the moment the user saves.
+    /// </summary>
+    private CharacterAppearance appearance = CharacterAppearance.Character;
+
+    /// <summary>
     /// Set once, in <see cref="OnFrameworkInitializationCompleted"/>, and reused by
     /// Reintentar: <see cref="Progress{T}"/> only needs to be built on the UI
     /// thread once, and by the time a retry is possible the message loop is
@@ -282,6 +289,7 @@ public partial class App : Application
             // The same switch lives in two places; this is the settings window
             // telling the tray what the user just chose.
             view.CharacterVisibilityChanged += visible => SetCharacterVisible(visible, persist: false);
+            view.CharacterAppearanceChanged += SetCharacterAppearance;
 
             // Reintentar re-enters the same sequencing method retry went through
             // the first time, so success after a retry starts the pipeline through
@@ -339,8 +347,31 @@ public partial class App : Application
 
     private void SetUpCharacter()
     {
-        if (services.GetRequiredService<Settings>().ShowCharacter)
+        var settings = services.GetRequiredService<Settings>();
+
+        appearance = settings.CharacterAppearance;
+
+        if (settings.ShowCharacter)
             SetCharacterVisible(true, persist: false);
+    }
+
+    /// <summary>
+    /// Switches between the character and the minimal glyph.
+    ///
+    /// Does not persist: the only thing that raises this is the settings window,
+    /// which has already written the choice to disk as part of the same save. A
+    /// second writer here would be the bounce <see cref="SetCharacterVisible"/>'s
+    /// <c>persist</c> flag exists to prevent.
+    ///
+    /// Applied to the live window when there is one, so the change is visible
+    /// immediately rather than at the next launch; when there is not, the field is
+    /// enough, because the window reads it as it is built.
+    /// </summary>
+    private void SetCharacterAppearance(CharacterAppearance wanted)
+    {
+        appearance = wanted;
+
+        character?.SetAppearance(wanted);
     }
 
     /// <summary>
@@ -367,7 +398,7 @@ public partial class App : Application
             {
                 if (character is null)
                 {
-                    character = new CharacterWindow(services.GetRequiredService<IOverlayStyler>());
+                    character = new CharacterWindow(services.GetRequiredService<IOverlayStyler>(), appearance);
                     character.Follow(services.GetRequiredService<DictationPipeline>());
                 }
 
