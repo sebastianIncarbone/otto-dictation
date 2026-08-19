@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Threading.Tasks;
 using Avalonia.Input.Platform;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -19,6 +20,7 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly string databasePath;
     private readonly ProvisioningOptions provisioningOptions;
     private readonly IHotkeyAvailability hotkeyAvailability;
+    private readonly Func<IStorageProvider?>? storage;
 
     /// <summary>Fallback <see cref="ListeningLabel"/> reads while <c>pipeline.RegisteredHotkey</c> is still null (Loading).</summary>
     private readonly HotkeyBinding startupHotkey;
@@ -38,7 +40,14 @@ public sealed partial class MainViewModel : ObservableObject
         string databasePath,
         Func<IClipboard?> clipboard,
         ProvisioningOptions provisioningOptions,
-        IHotkeyAvailability hotkeyAvailability)
+        IHotkeyAvailability hotkeyAvailability,
+
+        // Resolved lazily and optional for the same reason the clipboard is: it
+        // belongs to a window, and this view model is built before there is one.
+        // Left out — as every test leaves it out — exporting finds nowhere to put a
+        // file and declines, which is the honest answer when there is no window to
+        // ask through. Program.cs is the one place that passes it.
+        Func<IStorageProvider?>? storage = null)
     {
         this.repository = repository;
         this.pipeline = pipeline;
@@ -47,6 +56,7 @@ public sealed partial class MainViewModel : ObservableObject
         this.databasePath = databasePath;
         this.provisioningOptions = provisioningOptions;
         this.hotkeyAvailability = hotkeyAvailability;
+        this.storage = storage;
 
         startupHotkey = settings.ToBinding();
         savedHotkey = startupHotkey;
@@ -162,6 +172,7 @@ public sealed partial class MainViewModel : ObservableObject
     {
         foreach (var note in Notes) note.IsSelecting = value;
 
+        ExportError = "";
         RefreshSelection();
     }
 
@@ -195,6 +206,66 @@ public sealed partial class MainViewModel : ObservableObject
     public string DeleteSelectedWarning => SelectedCount == 1
         ? "Se borra 1 nota y no se puede recuperar."
         : $"Se borran {SelectedCount} notas y no se pueden recuperar.";
+
+    /// <summary>
+    /// Shown when a save could not be completed, and only then.
+    ///
+    /// The picker is its own confirmation on the way in — somebody chose the folder
+    /// and the name — so success needs no announcement. A failure does: an export
+    /// that quietly writes nothing leaves a person believing they have a copy.
+    /// </summary>
+    [ObservableProperty] private string exportError = "";
+
+    /// <summary>
+    /// Writes the picked notes to a file the person chooses.
+    ///
+    /// <para>
+    /// The formatting lives in <see cref="NoteExport"/> and is tested there. What is
+    /// here is the part that cannot be: a dialog, and a stream.
+    /// </para>
+    /// </summary>
+    [RelayCommand]
+    private async Task ExportSelectedAsync(string? format)
+    {
+        ExportError = "";
+
+        var picked = Notes.Where(note => note.IsSelected).ToList();
+
+        if (picked.Count == 0 || storage?.Invoke() is not { } provider) return;
+
+        var markdown = format == "md";
+
+        try
+        {
+            var file = await provider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "Exportar notas",
+                SuggestedFileName = NoteExport.SuggestedName(DateTimeOffset.Now, markdown),
+                DefaultExtension = markdown ? "md" : "txt",
+            });
+
+            // Cancelling the dialog is an answer, not a failure. Nothing to report
+            // and nothing to clean up.
+            if (file is null) return;
+
+            await using var stream = await file.OpenWriteAsync();
+            await using var writer = new StreamWriter(stream, NoteExport.Encoding);
+
+            await writer.WriteAsync(markdown
+                ? NoteExport.ToMarkdown(picked)
+                : NoteExport.ToPlainText(picked));
+        }
+        catch (Exception)
+        {
+            // A full disk, a folder that turned read-only, a drive pulled out
+            // mid-save. Otto keeps running — losing an export is not losing a note —
+            // but the person has to know the copy they think they made is not there.
+            ExportError = "No se pudo exportar.";
+            return;
+        }
+
+        IsSelecting = false;
+    }
 
     /// <inheritdoc cref="IsConfirmingDeleteSelected"/>
     [RelayCommand]

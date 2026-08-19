@@ -108,7 +108,11 @@ services.AddSingleton(sp => new MainViewModel(
     // built before any window exists.
     () => App.Shell?.Clipboard,
     sp.GetRequiredService<ProvisioningOptions>(),
-    sp.GetRequiredService<IHotkeyAvailability>()));
+    sp.GetRequiredService<IHotkeyAvailability>(),
+
+    // Same story as the clipboard: the save dialog is a window's, and this is the
+    // one place that has any business knowing which window.
+    () => App.Shell?.StorageProvider));
 
 App.Services = services.BuildServiceProvider();
 

@@ -390,6 +390,21 @@
                 BorderBrush="{DynamicResource OttoBorder}" BorderThickness="0,2,0,0"
                 IsVisible="{Binding IsSelecting}">
           <Grid>
+            <StackPanel Orientation="Horizontal" Spacing="8"
+                        IsVisible="{Binding !IsConfirmingDeleteSelected}">
+              <Button Content="Exportar .txt" FontSize="12.5"
+                      Command="{Binding ExportSelectedCommand}" CommandParameter="txt"
+                      IsEnabled="{Binding HasSelection}" />
+              <Button Content="Exportar .md" FontSize="12.5"
+                      Command="{Binding ExportSelectedCommand}" CommandParameter="md"
+                      IsEnabled="{Binding HasSelection}" />
+
+              <TextBlock Text="{Binding ExportError}" FontSize="12"
+                         VerticalAlignment="Center" Margin="4,0,0,0"
+                         Foreground="{DynamicResource OttoDanger}"
+                         IsVisible="{Binding ExportError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            </StackPanel>
+
             <Button Classes="accent" FontSize="12.5" HorizontalAlignment="Right"
                     Content="{Binding DeleteSelectedLabel}"
                     Command="{Binding ConfirmDeleteSelectedCommand}"
