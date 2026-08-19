@@ -1,14 +1,54 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Otto.App.ViewModels"
+        xmlns:views="using:Otto.App.Views"
         x:Class="Otto.App.Views.MainWindow"
         x:DataType="vm:MainViewModel"
         Title="Otto"
         Width="560" Height="700"
         MinWidth="420" MinHeight="420"
+        Background="{DynamicResource OttoCard}"
+        FontFamily="{DynamicResource OttoFontUi}"
         WindowStartupLocation="CenterScreen">
 
   <Window.Styles>
+    <!-- El logotipo. El diseño lo pide en Archivo expandida a peso 800; Segoe UI no
+         tiene eje de ancho ni ese peso, así que Bold es lo más cerca que llega sin
+         empaquetar la fuente — ver Theme/Tokens.axaml. -->
+    <Style Selector="TextBlock.wordmark">
+      <Setter Property="FontSize" Value="26" />
+      <Setter Property="FontWeight" Value="Bold" />
+      <Setter Property="LineHeight" Value="26" />
+      <Setter Property="Foreground" Value="{DynamicResource OttoText}" />
+    </Style>
+
+    <!-- El renglón de estado. El color y el peso viven acá y no en el elemento
+         porque un valor local le gana a un setter de estilo: puesto inline, el
+         apagado del estado inactivo pisaría al de escuchando y nunca cambiaría. -->
+    <Style Selector="TextBlock.status">
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="Foreground" Value="{DynamicResource OttoTextMuted}" />
+    </Style>
+    <Style Selector="TextBlock.status.listening">
+      <Setter Property="Foreground" Value="{DynamicResource OttoStatusListening}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="TextBlock.status.working">
+      <Setter Property="Foreground" Value="{DynamicResource OttoStatusWorking}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <Style Selector="Button.ghost">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Foreground" Value="{DynamicResource OttoText}" />
+      <Setter Property="Padding" Value="8,6" />
+      <Setter Property="CornerRadius" Value="12" />
+    </Style>
+    <Style Selector="Button.ghost:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource OttoAccentSoft}" />
+    </Style>
+
     <Style Selector="TextBlock.eyebrow">
       <Setter Property="FontSize" Value="11" />
       <Setter Property="LetterSpacing" Value="1" />
@@ -26,18 +66,29 @@
   <DockPanel LastChildFill="True">
 
     <!-- Encabezado: estado siempre visible, porque es lo primero que se pregunta
-         cualquiera que abre una app que corre en segundo plano. -->
-    <Border DockPanel.Dock="Top" Padding="18,16,18,12"
-            BorderBrush="{DynamicResource ThemeBorderMidBrush}" BorderThickness="0,0,0,1">
+         cualquiera que abre una app que corre en segundo plano.
+
+         La figura de estado es la misma que dibuja el ícono de bandeja — ver
+         StateShapes. Que sea la misma en los dos lados es lo que permite leer el
+         estado sin traducir entre dos vocabularios distintos. -->
+    <Border DockPanel.Dock="Top" Padding="20,10,20,14"
+            BorderBrush="{DynamicResource OttoBorder}" BorderThickness="0,0,0,2">
       <Grid ColumnDefinitions="*,Auto">
-        <StackPanel Spacing="2">
-          <TextBlock Text="Otto" FontSize="20" FontWeight="SemiBold" />
-          <!-- Envuelve porque este renglón dejó de ser sólo "Listo · Ctrl+Alt+Espacio".
-               Cuando el atajo no se pudo registrar, acá va la explicación completa, y
-               sin esto se cortaba justo en la parte que dice qué hacer al respecto:
-               un aviso que no entra en la pantalla no avisa nada. -->
-          <TextBlock Text="{Binding StatusText}" FontSize="12" Opacity="0.7"
-                     TextWrapping="Wrap" />
+        <StackPanel Spacing="5" VerticalAlignment="Bottom">
+          <TextBlock Classes="wordmark" Text="Otto" />
+
+          <StackPanel Orientation="Horizontal" Spacing="7">
+            <views:StateGlyph Width="13" Height="13" State="{Binding State}"
+                              VerticalAlignment="Center" />
+
+            <!-- Envuelve porque este renglón dejó de ser sólo "Listo · Ctrl+Alt+Espacio".
+                 Cuando el atajo no se pudo registrar, acá va la explicación completa, y
+                 sin esto se cortaba justo en la parte que dice qué hacer al respecto:
+                 un aviso que no entra en la pantalla no avisa nada. -->
+            <TextBlock Classes="status" Text="{Binding StatusText}" TextWrapping="Wrap"
+                       Classes.listening="{Binding IsListening}"
+                       Classes.working="{Binding IsWorking}" />
+          </StackPanel>
 
           <!-- El aviso de reinicio vive acá, en el encabezado, y no adentro de la
                tarjeta de configuración: guardar cierra esa tarjeta, así que el aviso
@@ -50,13 +101,31 @@
                se apaga solo apenas Otto arranca de nuevo. No hay que bajarlo a mano,
                y no puede quedar prendido mintiendo. -->
           <TextBlock Text="El atajo nuevo se activa recién en el próximo inicio de Otto."
-                     FontSize="12" Opacity="0.7" TextWrapping="Wrap"
+                     Classes="status" TextWrapping="Wrap"
                      IsVisible="{Binding HotkeyChangePending}" />
         </StackPanel>
 
-        <Button Grid.Column="1" Content="Configuración" VerticalAlignment="Center"
+        <Button Grid.Column="1" Classes="ghost" VerticalAlignment="Bottom"
                 Command="{Binding ToggleSettingsCommand}"
-                IsVisible="{Binding !IsProvisioning}" />
+                IsVisible="{Binding !IsProvisioning}">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <!-- Dos rieles con perillas: las perillas se rellenan con el fondo para
+                 que el riel se corte al pasar por debajo, igual que en el diseño. -->
+            <Canvas Width="15" Height="15" VerticalAlignment="Center">
+              <Line StartPoint="1.5,4" EndPoint="14.5,4"
+                    Stroke="{DynamicResource OttoText}" StrokeThickness="1.6" />
+              <Line StartPoint="1.5,11" EndPoint="14.5,11"
+                    Stroke="{DynamicResource OttoText}" StrokeThickness="1.6" />
+              <Ellipse Canvas.Left="8.5" Canvas.Top="2" Width="4" Height="4"
+                       Fill="{DynamicResource OttoCard}"
+                       Stroke="{DynamicResource OttoText}" StrokeThickness="1.6" />
+              <Ellipse Canvas.Left="3.5" Canvas.Top="9" Width="4" Height="4"
+                       Fill="{DynamicResource OttoCard}"
+                       Stroke="{DynamicResource OttoText}" StrokeThickness="1.6" />
+            </Canvas>
+            <TextBlock Text="Ajustes" FontSize="13" VerticalAlignment="Center" />
+          </StackPanel>
+        </Button>
       </Grid>
     </Border>
 

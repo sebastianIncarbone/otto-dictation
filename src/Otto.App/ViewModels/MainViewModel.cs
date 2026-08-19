@@ -199,7 +199,27 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(ListeningLabel));
         OnPropertyChanged(nameof(EmptyMessage));
         OnPropertyChanged(nameof(HotkeyChangePending));
+        OnPropertyChanged(nameof(IsListening));
+        OnPropertyChanged(nameof(IsWorking));
     }
+
+    /// <summary>
+    /// The status line's emphasis, as the booleans a style selector binds to.
+    ///
+    /// The redesign gives the two active states their own colour and a heavier
+    /// weight, and leaves the two quiet ones muted — attention belongs to the
+    /// moments when Otto is doing something with your voice, not to the hours it
+    /// spends waiting.
+    ///
+    /// Both go false under <see cref="HasHotkeyAlert"/>. That failure leaves
+    /// <see cref="State"/> stuck at <see cref="DictationState.Loading"/> forever, so
+    /// neither would fire anyway — but stating it here means the alert's own styling
+    /// cannot be fought over by a state that is no longer moving.
+    /// </summary>
+    public bool IsListening => !HasHotkeyAlert && State == DictationState.Recording;
+
+    /// <inheritdoc cref="IsListening"/>
+    public bool IsWorking => !HasHotkeyAlert && State == DictationState.Transcribing;
 
     /// <summary>
     /// <see cref="EmptyMessage"/> reads <see cref="Search"/> directly, but nothing
@@ -468,6 +488,8 @@ public sealed partial class MainViewModel : ObservableObject
 
         OnPropertyChanged(nameof(StatusText));
         OnPropertyChanged(nameof(EmptyMessage));
+        OnPropertyChanged(nameof(IsListening));
+        OnPropertyChanged(nameof(IsWorking));
     }
 
     /// <summary>

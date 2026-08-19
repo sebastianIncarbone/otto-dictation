@@ -1,0 +1,80 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!-- The redesign's tokens, resolved.
+
+       The design file layers them — a token set, then a bridge that aliases
+       legacy names onto it — and everything here is the value at the end of that
+       chain rather than the chain itself. A theme with two levels of indirection
+       and no CSS to collapse them is two places to look up every colour.
+
+       Fonts are the design's FALLBACKS, not its first choice. It asks for Archivo
+       and JetBrains Mono over Google Fonts, and says in its own comment that both
+       are substitutes because no brand font files were provided. Otto promises to
+       work with no internet, so fetching a font at startup is not available to us;
+       Segoe UI and Cascadia Mono ship with Windows and are what the design's own
+       fallback stacks name. Embedding the real faces is a decision about shipping
+       binary assets, and it is not this file's to make. -->
+
+  <FontFamily x:Key="OttoFontUi">Segoe UI</FontFamily>
+  <FontFamily x:Key="OttoFontMono">Cascadia Mono, Consolas</FontFamily>
+
+  <ResourceDictionary.ThemeDictionaries>
+
+    <ResourceDictionary x:Key="Light">
+      <SolidColorBrush x:Key="OttoPage" Color="#F2F3F6" />
+      <SolidColorBrush x:Key="OttoCard" Color="#FFFFFF" />
+      <SolidColorBrush x:Key="OttoSunken" Color="#F8F9FB" />
+
+      <SolidColorBrush x:Key="OttoText" Color="#0C0D10" />
+      <SolidColorBrush x:Key="OttoTextMuted" Color="#565E6E" />
+      <SolidColorBrush x:Key="OttoTextFaint" Color="#7A8294" />
+
+      <!-- rgba(12,13,16,.10) and .06 — the design's two border weights. -->
+      <SolidColorBrush x:Key="OttoBorder" Color="#1A0C0D10" />
+      <SolidColorBrush x:Key="OttoBorderSoft" Color="#0F0C0D10" />
+
+      <SolidColorBrush x:Key="OttoAccent" Color="#D0021B" />
+      <SolidColorBrush x:Key="OttoAccentHover" Color="#B10217" />
+      <SolidColorBrush x:Key="OttoAccentPress" Color="#8F0213" />
+      <SolidColorBrush x:Key="OttoAccentSoft" Color="#1AD0021B" />
+
+      <!-- The status line darkens its accent so it stays readable as small text on
+           a light background; the glyph beside it keeps the pure state colour. -->
+      <SolidColorBrush x:Key="OttoStatusListening" Color="#B10217" />
+      <SolidColorBrush x:Key="OttoStatusWorking" Color="#B36406" />
+
+      <SolidColorBrush x:Key="OttoOk" Color="#1E9E5A" />
+      <SolidColorBrush x:Key="OttoWarn" Color="#D97A08" />
+      <SolidColorBrush x:Key="OttoDanger" Color="#D0021B" />
+    </ResourceDictionary>
+
+    <ResourceDictionary x:Key="Dark">
+      <SolidColorBrush x:Key="OttoPage" Color="#0C0D10" />
+      <SolidColorBrush x:Key="OttoCard" Color="#14161B" />
+      <SolidColorBrush x:Key="OttoSunken" Color="#1C1F26" />
+
+      <SolidColorBrush x:Key="OttoText" Color="#F2F3F6" />
+      <SolidColorBrush x:Key="OttoTextMuted" Color="#A6ACBA" />
+      <SolidColorBrush x:Key="OttoTextFaint" Color="#7A8294" />
+
+      <!-- rgba(255,255,255,.12) and .07 -->
+      <SolidColorBrush x:Key="OttoBorder" Color="#1FFFFFFF" />
+      <SolidColorBrush x:Key="OttoBorderSoft" Color="#12FFFFFF" />
+
+      <SolidColorBrush x:Key="OttoAccent" Color="#FF2438" />
+      <SolidColorBrush x:Key="OttoAccentHover" Color="#FF4557" />
+      <SolidColorBrush x:Key="OttoAccentPress" Color="#E01D30" />
+      <SolidColorBrush x:Key="OttoAccentSoft" Color="#24FF2438" />
+
+      <!-- Lightened rather than darkened here, for the same readability reason. -->
+      <SolidColorBrush x:Key="OttoStatusListening" Color="#FF4557" />
+      <SolidColorBrush x:Key="OttoStatusWorking" Color="#F0A03C" />
+
+      <SolidColorBrush x:Key="OttoOk" Color="#2FBE72" />
+      <SolidColorBrush x:Key="OttoWarn" Color="#F0A03C" />
+      <SolidColorBrush x:Key="OttoDanger" Color="#FF2438" />
+    </ResourceDictionary>
+
+  </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary>

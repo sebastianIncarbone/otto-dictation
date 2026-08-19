@@ -228,7 +228,10 @@ public partial class App : Application
         var tray = new TrayIcon
         {
             Icon = TrayIcons.For(pipeline.State),
-            ToolTipText = "Otto",
+
+            // The state's own tooltip from the first frame. A bare "Otto" said
+            // nothing at exactly the moment the icon has no history to read it by.
+            ToolTipText = StateShapes.Tooltip(pipeline.State),
             Menu = BuildMenu(desktop),
         };
 
@@ -237,13 +240,7 @@ public partial class App : Application
         pipeline.StateChanged += state => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
             tray.Icon = TrayIcons.For(state);
-            tray.ToolTipText = state switch
-            {
-                DictationState.Loading      => "Otto — cargando modelo",
-                DictationState.Recording    => "Otto — escuchando",
-                DictationState.Transcribing => "Otto — procesando",
-                _ => "Otto — listo",
-            };
+            tray.ToolTipText = StateShapes.Tooltip(state);
         });
 
         TrayIcon.SetIcons(this, [tray]);
