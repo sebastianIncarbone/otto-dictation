@@ -72,6 +72,11 @@
            is a surface tint, this one has to be legible under running text. -->
       <SolidColorBrush x:Key="OttoHighlight" Color="#2ED0021B" />
 
+      <!-- The design's neutral-400, for drawn marks rather than text: quieter than
+           OttoTextFaint, because an illustration next to a sentence should not
+           compete with it for the eye. -->
+      <SolidColorBrush x:Key="OttoGlyphQuiet" Color="#A6ACBA" />
+
       <!-- 0 1px 2px rgba(12,13,16,.06) and 0 4px 16px rgba(12,13,16,.08). These
            are what tell a card apart from the page it sits on once both are
            nearly white; without them the light theme has one flat surface. -->
@@ -112,6 +117,11 @@
            ratio the design uses in the light theme (soft .10 to highlight .18)
            and applies it to the dark accent-soft, .14, landing at .25. -->
       <SolidColorBrush x:Key="OttoHighlight" Color="#40FF2438" />
+
+      <!-- The neutral scale inverts between themes, so the design's neutral-400 is
+           a darker slate here rather than a lighter one. Deliberately dim: on this
+           page a mid-grey drawing would read as the loudest thing on screen. -->
+      <SolidColorBrush x:Key="OttoGlyphQuiet" Color="#3A404C" />
 
       <!-- Far heavier than the light theme's — rgba(0,0,0,.4) and .45. A shadow
            tuned for white is invisible on #0C0D10. -->

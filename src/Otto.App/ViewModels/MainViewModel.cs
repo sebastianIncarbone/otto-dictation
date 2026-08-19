@@ -170,11 +170,41 @@ public sealed partial class MainViewModel : ObservableObject
     /// worse than none.
     /// </para>
     /// </summary>
-    public string EmptyMessage => !string.IsNullOrWhiteSpace(Search)
+    public string EmptyHeading => IsSearching
         ? $"Nada que coincida con «{Search}»."
         : HasHotkeyAlert
             ? HotkeyAlertMessage
-            : $"Todavía no dictaste nada.\nMantené {ListeningLabel} en cualquier programa y hablá.";
+            : "Todavía no dictaste nada.";
+
+    /// <summary>
+    /// Whether the empty list is the one that means "you have not started yet",
+    /// rather than a search that found nothing or a hotkey that failed.
+    ///
+    /// It is the only one of the three the design illustrates, and the only one
+    /// that gets a second line. Telling somebody to hold a hotkey is an invitation,
+    /// and the other two are not moments to be invited into anything.
+    /// </summary>
+    public bool HasNoDictationsYet => !IsSearching && !HasHotkeyAlert;
+
+    /// <inheritdoc cref="HasNoDictationsYet"/>
+    public string EmptyDetail => HasNoDictationsYet
+        ? $"Mantené {ListeningLabel} en cualquier programa y hablá."
+        : string.Empty;
+
+    /// <summary>
+    /// The empty slot's three parts move together — each of them reads
+    /// <see cref="Search"/>, <see cref="HasHotkeyAlert"/> or
+    /// <see cref="ListeningLabel"/> — so they are renotified together. Raised one
+    /// at a time across five call sites, the one that gets forgotten is a slot
+    /// left showing the previous state, which is the failure this whole
+    /// arrangement is built to avoid.
+    /// </summary>
+    private void RefreshEmpty()
+    {
+        OnPropertyChanged(nameof(EmptyHeading));
+        OnPropertyChanged(nameof(EmptyDetail));
+        OnPropertyChanged(nameof(HasNoDictationsYet));
+    }
 
     /// <summary>
     /// <c>DictationPipeline</c> fires <c>StateChanged</c> from whatever thread the
@@ -209,7 +239,7 @@ public sealed partial class MainViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(StatusText));
         OnPropertyChanged(nameof(ListeningLabel));
-        OnPropertyChanged(nameof(EmptyMessage));
+        RefreshEmpty();
         OnPropertyChanged(nameof(HotkeyChangePending));
         OnPropertyChanged(nameof(IsListening));
         OnPropertyChanged(nameof(IsWorking));
@@ -234,7 +264,7 @@ public sealed partial class MainViewModel : ObservableObject
     public bool IsWorking => !HasHotkeyAlert && State == DictationState.Transcribing;
 
     /// <summary>
-    /// <see cref="EmptyMessage"/> reads <see cref="Search"/> directly, but nothing
+    /// <see cref="EmptyHeading"/> reads <see cref="Search"/> directly, but nothing
     /// generated for <see cref="Search"/> notifies it. Raising it here — rather
     /// than relying only on <see cref="Refresh"/> at the tail of the fire-and-forget
     /// <see cref="ReloadAsync"/> — keeps it accurate even when the repository call
@@ -243,7 +273,7 @@ public sealed partial class MainViewModel : ObservableObject
     /// </summary>
     partial void OnSearchChanged(string value)
     {
-        OnPropertyChanged(nameof(EmptyMessage));
+        RefreshEmpty();
         OnPropertyChanged(nameof(IsSearching));
         _ = ReloadAsync();
     }
@@ -326,7 +356,7 @@ public sealed partial class MainViewModel : ObservableObject
     private void Refresh()
     {
         OnPropertyChanged(nameof(IsEmpty));
-        OnPropertyChanged(nameof(EmptyMessage));
+        RefreshEmpty();
         OnPropertyChanged(nameof(IsSearching));
         OnPropertyChanged(nameof(ResultCount));
     }
@@ -379,7 +409,7 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>
     /// What Otto is actually listening on: what <c>DictationPipeline</c> registered, or
     /// — while that is still null (Loading) — what Otto started up with. Read by
-    /// <see cref="StatusText"/> and <see cref="EmptyMessage"/>, never by
+    /// <see cref="StatusText"/> and <see cref="EmptyHeading"/>, never by
     /// <see cref="HotkeyLabel"/>, so the edited value can never be mistaken for the one in effect.
     /// </summary>
     public string ListeningLabel => HotkeyLabels.For(pipeline.RegisteredHotkey ?? startupHotkey);
@@ -509,7 +539,7 @@ public sealed partial class MainViewModel : ObservableObject
     /// <c>DictationPipeline.StartAsync</c> threw a <see cref="HotkeyRegistrationException"/>.
     /// Once that happens <see cref="State"/> is stuck at <see cref="DictationState.Loading"/>
     /// forever — nothing retries and nothing exits, because the hotkey <em>is</em> the
-    /// dictation here — so <see cref="StatusText"/> and <see cref="EmptyMessage"/> both
+    /// dictation here — so <see cref="StatusText"/> and <see cref="EmptyHeading"/> both
     /// have to stop repeating "Cargando modelo…" and say what actually happened instead.
     /// </summary>
     [ObservableProperty] private bool hasHotkeyAlert;
@@ -535,7 +565,7 @@ public sealed partial class MainViewModel : ObservableObject
             : $"No se pudo activar el atajo {ListeningLabel}. Elegí uno distinto en Configuración.";
 
         OnPropertyChanged(nameof(StatusText));
-        OnPropertyChanged(nameof(EmptyMessage));
+        RefreshEmpty();
         OnPropertyChanged(nameof(IsListening));
         OnPropertyChanged(nameof(IsWorking));
     }
