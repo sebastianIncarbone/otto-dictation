@@ -141,6 +141,9 @@ public sealed partial class MainViewModel : ObservableObject
 
     public bool IsEmpty => Notes.Count == 0;
 
+    /// <summary>Whether the list on screen is a filtered one rather than all of it.</summary>
+    public bool IsSearching => !string.IsNullOrWhiteSpace(Search);
+
     /// <summary>
     /// Same alert rule as <see cref="StatusText"/>, but a search wins over it.
     ///
@@ -232,8 +235,17 @@ public sealed partial class MainViewModel : ObservableObject
     partial void OnSearchChanged(string value)
     {
         OnPropertyChanged(nameof(EmptyMessage));
+        OnPropertyChanged(nameof(IsSearching));
         _ = ReloadAsync();
     }
+
+    /// <summary>
+    /// The way back out of a search that found nothing. Clearing the box by hand
+    /// is not hard, but it is the only thing left to do at that point, and the
+    /// screen may as well say so.
+    /// </summary>
+    [RelayCommand]
+    private void ClearSearch() => Search = string.Empty;
 
     public async Task ReloadAsync()
     {
@@ -300,6 +312,7 @@ public sealed partial class MainViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(IsEmpty));
         OnPropertyChanged(nameof(EmptyMessage));
+        OnPropertyChanged(nameof(IsSearching));
     }
 
     [RelayCommand]

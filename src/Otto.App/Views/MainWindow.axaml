@@ -44,6 +44,14 @@
       <Setter Property="Opacity" Value="0.6" />
     </Style>
 
+    <!-- El buscador se queda con el borde de acento mientras hay algo escrito, no
+         sólo mientras tiene el foco. Una lista filtrada es idéntica a una lista
+         corta, y esta es la única marca en pantalla de que no las estás viendo
+         todas. -->
+    <Style Selector="TextBox.filtering /template/ Border#PART_BorderElement">
+      <Setter Property="BorderBrush" Value="{DynamicResource OttoAccent}" />
+    </Style>
+
     <!-- Una nota es un renglón de una lista, no una tarjeta.
 
          El diseño las separa con una regla de 2px y nada más: sin fondo propio,
@@ -296,13 +304,14 @@
              no un elemento más adentro de ella. -->
         <Border DockPanel.Dock="Top" Padding="20,12"
                 BorderBrush="{DynamicResource OttoBorder}" BorderThickness="0,0,0,1">
-          <TextBox PlaceholderText="Buscar en tus notas" Text="{Binding Search}" />
+          <TextBox PlaceholderText="Buscar en tus notas" Text="{Binding Search}"
+                   Classes.filtering="{Binding IsSearching}" />
         </Border>
 
-        <!-- Vacío -->
-        <TextBlock DockPanel.Dock="Top" Margin="20,40,20,0"
-                   Text="{Binding EmptyMessage}" TextWrapping="Wrap" TextAlignment="Center"
-                   Foreground="{DynamicResource OttoTextMuted}" IsVisible="{Binding IsEmpty}" />
+        <!-- La lista y el vacío se turnan en el mismo lugar. -->
+        <Grid>
+
+          <DockPanel LastChildFill="True" IsVisible="{Binding !IsEmpty}">
 
         <!-- Notas. Sin padding en el ScrollViewer: los renglones van de borde a
              borde y el suyo propio es el que separa el texto del filo. -->
@@ -393,6 +402,25 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
         </ScrollViewer>
+
+          </DockPanel>
+
+          <!-- Vacío: centrado en lo que queda de la ventana y alineado a la
+               izquierda, no al medio. Es una frase que se lee, no un cartel.
+
+               El botón sólo existe cuando hay una búsqueda que limpiar. Borrar el
+               campo a mano tampoco cuesta nada, pero en ese momento es lo único
+               que queda por hacer, y la pantalla bien puede decirlo. -->
+          <StackPanel IsVisible="{Binding IsEmpty}" VerticalAlignment="Center"
+                      Margin="56,0" Spacing="10">
+            <TextBlock Text="{Binding EmptyMessage}" TextWrapping="Wrap" FontSize="15" />
+            <Button Classes="ghost accent" Content="Limpiar la búsqueda"
+                    HorizontalAlignment="Left" Padding="0,4"
+                    Command="{Binding ClearSearchCommand}"
+                    IsVisible="{Binding IsSearching}" />
+          </StackPanel>
+
+        </Grid>
 
       </DockPanel>
 

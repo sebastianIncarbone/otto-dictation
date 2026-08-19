@@ -77,6 +77,31 @@
     <Setter Property="Background" Value="{DynamicResource OttoAccentSoft}" />
   </Style>
 
+  <!-- The design's ghost button is accent-coloured, and Otto's one long-standing
+       ghost — Ajustes in the header — is the exception that asks for inherited
+       colour instead. So the accent is a class rather than the default, and the
+       header keeps the icon and the label agreeing with each other.
+
+       Both the background and the border are restated. A class that only set the
+       foreground still arrived with a filled pill behind the text: the base
+       Button's own Background and BorderBrush setters are what the ghost class
+       above overrides, and adding a third style to the chain was enough to change
+       which of them the framework settled on. Saying all three here means this
+       button does not depend on that order at all. -->
+  <Style Selector="Button.accent">
+    <Setter Property="Foreground" Value="{DynamicResource OttoAccent}" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+  </Style>
+  <Style Selector="Button.accent /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="TextBlock.Foreground" Value="{DynamicResource OttoAccent}" />
+  </Style>
+  <Style Selector="Button.accent:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource OttoAccentSoft}" />
+    <Setter Property="TextBlock.Foreground" Value="{DynamicResource OttoAccentHover}" />
+  </Style>
+
   <!-- Inputs. Sunken rather than raised: the design puts fields *into* the surface,
        which is what separates an editable field from a button at a glance. -->
   <Style Selector="TextBox">
