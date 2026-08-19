@@ -1,0 +1,119 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!-- The redesign's controls, over Fluent.
+
+       Written as explicit selectors rather than by overriding Fluent's own
+       resource keys: that theme ships its XAML compiled into the assembly, so the
+       key names are not inspectable from here, and a key guessed wrong fails
+       silently — the control simply keeps its default look and nothing says why.
+       A selector that matches nothing is just as quiet, but these are the
+       documented template parts and they are checkable by eye in one run. -->
+
+  <!-- Buttons. The base is the design's .btn-secondary, because that is what
+       almost every button in Otto is: a bordered, quiet action. Primary and ghost
+       are the two exceptions and they ask for it by class. -->
+  <Style Selector="Button">
+    <Setter Property="FontFamily" Value="{DynamicResource OttoFontUiStrong}" />
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="Foreground" Value="{DynamicResource OttoText}" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="{DynamicResource OttoBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="Padding" Value="16,8" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+
+  <Style Selector="Button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource OttoSunken}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource OttoBorder}" />
+    <Setter Property="TextBlock.Foreground" Value="{DynamicResource OttoText}" />
+  </Style>
+
+  <Style Selector="Button:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource OttoBorderSoft}" />
+    <Setter Property="TextBlock.Foreground" Value="{DynamicResource OttoText}" />
+  </Style>
+
+  <Style Selector="Button:disabled /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Opacity" Value="0.45" />
+  </Style>
+
+  <Style Selector="Button.primary">
+    <Setter Property="Background" Value="{DynamicResource OttoAccent}" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="Foreground" Value="White" />
+  </Style>
+  <Style Selector="Button.primary /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="TextBlock.Foreground" Value="White" />
+  </Style>
+  <Style Selector="Button.primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource OttoAccentHover}" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="TextBlock.Foreground" Value="White" />
+  </Style>
+  <Style Selector="Button.primary:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource OttoAccentPress}" />
+    <Setter Property="TextBlock.Foreground" Value="White" />
+  </Style>
+
+  <!-- Ghost: no border, no fill until hovered. The header's Ajustes button and the
+       per-note actions. -->
+  <Style Selector="Button.ghost">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="8,6" />
+    <Setter Property="MinHeight" Value="0" />
+  </Style>
+  <Style Selector="Button.ghost:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource OttoAccentSoft}" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+  </Style>
+  <Style Selector="Button.ghost:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource OttoAccentSoft}" />
+  </Style>
+
+  <!-- Inputs. Sunken rather than raised: the design puts fields *into* the surface,
+       which is what separates an editable field from a button at a glance. -->
+  <Style Selector="TextBox">
+    <Setter Property="FontFamily" Value="{DynamicResource OttoFontUi}" />
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="Foreground" Value="{DynamicResource OttoText}" />
+    <Setter Property="Background" Value="{DynamicResource OttoSunken}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource OttoBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="Padding" Value="11,7" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="CaretBrush" Value="{DynamicResource OttoAccent}" />
+    <Setter Property="SelectionBrush" Value="{DynamicResource OttoAccentSoft}" />
+  </Style>
+
+  <Style Selector="TextBox:pointerover /template/ Border#PART_BorderElement">
+    <Setter Property="Background" Value="{DynamicResource OttoSunken}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource OttoBorderHover}" />
+  </Style>
+
+  <!-- The focused field is the one place the accent is allowed on a border: it is
+       the only border in the interface that means "your keystrokes land here". -->
+  <Style Selector="TextBox:focus /template/ Border#PART_BorderElement">
+    <Setter Property="Background" Value="{DynamicResource OttoSunken}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource OttoAccent}" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+
+  <Style Selector="TextBox /template/ TextBlock#PART_Watermark">
+    <Setter Property="Foreground" Value="{DynamicResource OttoTextFaint}" />
+  </Style>
+
+  <Style Selector="CheckBox, RadioButton">
+    <Setter Property="FontFamily" Value="{DynamicResource OttoFontUi}" />
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="Foreground" Value="{DynamicResource OttoText}" />
+  </Style>
+
+</Styles>

@@ -5,6 +5,10 @@
 
   <Application.Styles>
     <FluentTheme />
+
+    <!-- After Fluent, so these win. Fluent stays underneath for everything the
+         redesign does not speak about — scrollbars, menus, the caret. -->
+    <StyleInclude Source="avares://Otto.App/Theme/Controls.axaml" />
   </Application.Styles>
 
   <Application.Resources>

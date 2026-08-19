@@ -12,12 +12,12 @@
         WindowStartupLocation="CenterScreen">
 
   <Window.Styles>
-    <!-- El logotipo. El diseño lo pide en Archivo expandida a peso 800; Segoe UI no
-         tiene eje de ancho ni ese peso, así que Bold es lo más cerca que llega sin
-         empaquetar la fuente — ver Theme/Tokens.axaml. -->
+    <!-- El logotipo, en Archivo expandida peso 800 como pide el diseño. El peso vive
+         en el archivo de fuente, no en FontWeight: la cara ya es ExtraBold y pedirle
+         negrita encima la sintetizaría una segunda vez. -->
     <Style Selector="TextBlock.wordmark">
+      <Setter Property="FontFamily" Value="{DynamicResource OttoFontDisplay}" />
       <Setter Property="FontSize" Value="26" />
-      <Setter Property="FontWeight" Value="Bold" />
       <Setter Property="LineHeight" Value="26" />
       <Setter Property="Foreground" Value="{DynamicResource OttoText}" />
     </Style>
@@ -36,17 +36,6 @@
     <Style Selector="TextBlock.status.working">
       <Setter Property="Foreground" Value="{DynamicResource OttoStatusWorking}" />
       <Setter Property="FontWeight" Value="SemiBold" />
-    </Style>
-
-    <Style Selector="Button.ghost">
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="BorderThickness" Value="0" />
-      <Setter Property="Foreground" Value="{DynamicResource OttoText}" />
-      <Setter Property="Padding" Value="8,6" />
-      <Setter Property="CornerRadius" Value="12" />
-    </Style>
-    <Style Selector="Button.ghost:pointerover /template/ ContentPresenter">
-      <Setter Property="Background" Value="{DynamicResource OttoAccentSoft}" />
     </Style>
 
     <Style Selector="TextBlock.eyebrow">
@@ -187,7 +176,7 @@
         <CheckBox Content="Avisarme si hay una versión nueva al arrancar"
                   IsChecked="{Binding CheckForUpdates}" />
 
-        <Button Content="Guardar" HorizontalAlignment="Right"
+        <Button Content="Guardar" Classes="primary" HorizontalAlignment="Right"
                 Command="{Binding SaveSettingsCommand}" />
 
         <Separator Margin="0,4" />
@@ -293,7 +282,7 @@
             <TextBlock Classes="eyebrow" Text="PREPARANDO OTTO" />
             <TextBlock Text="{Binding ProvisioningError}" TextWrapping="Wrap"
                        FontSize="13" Foreground="#E5484A" />
-            <Button Content="Reintentar" HorizontalAlignment="Left"
+            <Button Content="Reintentar" Classes="primary" HorizontalAlignment="Left"
                     Command="{Binding RetryCommand}" />
           </StackPanel>
 

@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Media;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Otto.App;
@@ -106,8 +107,24 @@ App.Services = services.BuildServiceProvider();
 
 BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
 
+/// <summary>
+/// Archivo is the default family, not Inter.
+///
+/// It was <c>WithInterFont()</c>, which made Inter the font of every surface that
+/// does not name one — and Inter is the face the redesign explicitly steers away
+/// from. Setting the default here rather than on each control means a element
+/// nobody restyled still lands on the design's typeface instead of quietly
+/// reverting the whole redesign one unstyled label at a time.
+///
+/// Named by family rather than by file: the collection is the whole
+/// <c>Assets/fonts</c> folder, so the faces beside it — the expanded display cut,
+/// the mono — resolve from the same place through Theme/Tokens.axaml.
+/// </summary>
 static AppBuilder BuildAvaloniaApp() => AppBuilder
     .Configure<App>()
     .UsePlatformDetect()
-    .WithInterFont()
+    .With(new FontManagerOptions
+    {
+        DefaultFamilyName = "avares://Otto.App/Assets/fonts#Archivo",
+    })
     .LogToTrace();

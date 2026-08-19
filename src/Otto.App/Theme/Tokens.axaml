@@ -8,16 +8,23 @@
        chain rather than the chain itself. A theme with two levels of indirection
        and no CSS to collapse them is two places to look up every colour.
 
-       Fonts are the design's FALLBACKS, not its first choice. It asks for Archivo
-       and JetBrains Mono over Google Fonts, and says in its own comment that both
-       are substitutes because no brand font files were provided. Otto promises to
-       work with no internet, so fetching a font at startup is not available to us;
-       Segoe UI and Cascadia Mono ship with Windows and are what the design's own
-       fallback stacks name. Embedding the real faces is a decision about shipping
-       binary assets, and it is not this file's to make. -->
+       The fonts ship with Otto rather than being fetched. The design asks for
+       Archivo and JetBrains Mono over Google Fonts, and Otto promises to work with
+       no internet — so a webfont is not available to us at any price. Both are
+       OFL, so both travel with the binary instead; their licences sit beside them
+       in Assets/fonts.
 
-  <FontFamily x:Key="OttoFontUi">Segoe UI</FontFamily>
-  <FontFamily x:Key="OttoFontMono">Cascadia Mono, Consolas</FontFamily>
+       Referenced one face per family name, and deliberately not by asking one
+       family for three weights. These are static instances with legacy naming, so
+       "Archivo SemiBold" and "Archivo Expanded ExtraBold" are their own families
+       as far as the font matcher is concerned — asking "Archivo" for weight 600
+       finds nothing and synthesises a smeared fake. Naming the face is uglier and
+       it is the version that actually renders what the design drew. -->
+
+  <FontFamily x:Key="OttoFontUi">avares://Otto.App/Assets/fonts#Archivo</FontFamily>
+  <FontFamily x:Key="OttoFontUiStrong">avares://Otto.App/Assets/fonts#Archivo SemiBold</FontFamily>
+  <FontFamily x:Key="OttoFontDisplay">avares://Otto.App/Assets/fonts#Archivo Expanded ExtraBold</FontFamily>
+  <FontFamily x:Key="OttoFontMono">avares://Otto.App/Assets/fonts#JetBrains Mono</FontFamily>
 
   <ResourceDictionary.ThemeDictionaries>
 
@@ -33,6 +40,7 @@
       <!-- rgba(12,13,16,.10) and .06 — the design's two border weights. -->
       <SolidColorBrush x:Key="OttoBorder" Color="#1A0C0D10" />
       <SolidColorBrush x:Key="OttoBorderSoft" Color="#0F0C0D10" />
+      <SolidColorBrush x:Key="OttoBorderHover" Color="#A6ACBA" />
 
       <SolidColorBrush x:Key="OttoAccent" Color="#D0021B" />
       <SolidColorBrush x:Key="OttoAccentHover" Color="#B10217" />
@@ -61,6 +69,7 @@
       <!-- rgba(255,255,255,.12) and .07 -->
       <SolidColorBrush x:Key="OttoBorder" Color="#1FFFFFFF" />
       <SolidColorBrush x:Key="OttoBorderSoft" Color="#12FFFFFF" />
+      <SolidColorBrush x:Key="OttoBorderHover" Color="#565E6E" />
 
       <SolidColorBrush x:Key="OttoAccent" Color="#FF2438" />
       <SolidColorBrush x:Key="OttoAccentHover" Color="#FF4557" />
