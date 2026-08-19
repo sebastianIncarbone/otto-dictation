@@ -145,6 +145,15 @@ public sealed partial class MainViewModel : ObservableObject
     public bool IsSearching => !string.IsNullOrWhiteSpace(Search);
 
     /// <summary>
+    /// How many notes the search found, shown above them.
+    ///
+    /// A filtered list looks exactly like a short one, and without this the only
+    /// way to tell "your search found three" from "you have three notes" is to
+    /// remember what you typed.
+    /// </summary>
+    public string ResultCount => Notes.Count == 1 ? "1 NOTA" : $"{Notes.Count} NOTAS";
+
+    /// <summary>
     /// Same alert rule as <see cref="StatusText"/>, but a search wins over it.
     ///
     /// <para>
@@ -261,9 +270,15 @@ public sealed partial class MainViewModel : ObservableObject
         Refresh();
     }
 
+    /// <summary>
+    /// The query is stamped on at construction rather than bound. A note's rows
+    /// are rebuilt on every search — <see cref="OnSearchChanged"/> reloads — so the
+    /// value can never go stale, and a live binding would only give every note on
+    /// screen something else to listen to.
+    /// </summary>
     private NoteViewModel Wrap(Note note)
     {
-        var view = new NoteViewModel(note, repository, clipboard);
+        var view = new NoteViewModel(note, repository, clipboard) { Query = Search };
         view.DeleteRequested += OnDeleteRequested;
         view.EditStarted += OnEditStarted;
         return view;
@@ -313,6 +328,7 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(IsEmpty));
         OnPropertyChanged(nameof(EmptyMessage));
         OnPropertyChanged(nameof(IsSearching));
+        OnPropertyChanged(nameof(ResultCount));
     }
 
     [RelayCommand]

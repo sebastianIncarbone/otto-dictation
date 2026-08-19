@@ -44,6 +44,15 @@
       <Setter Property="Opacity" Value="0.6" />
     </Style>
 
+    <!-- El "3 NOTAS" arriba de una lista filtrada. Separado del eyebrow porque el
+         diseño los distingue: un rótulo de sección abre más las letras que un
+         recuento, que acompaña a la lista en vez de anunciarla. -->
+    <Style Selector="TextBlock.count">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="LetterSpacing" Value="0.7" />
+      <Setter Property="Foreground" Value="{DynamicResource OttoTextMuted}" />
+    </Style>
+
     <!-- El buscador se queda con el borde de acento mientras hay algo escrito, no
          sólo mientras tiene el foco. Una lista filtrada es idéntica a una lista
          corta, y esta es la única marca en pantalla de que no las estás viendo
@@ -313,6 +322,11 @@
 
           <DockPanel LastChildFill="True" IsVisible="{Binding !IsEmpty}">
 
+            <!-- Cuántas encontró la búsqueda. Sin búsqueda no dice nada: contar
+                 las notas que tenés no es información, es ruido. -->
+            <TextBlock DockPanel.Dock="Top" Classes="count" Text="{Binding ResultCount}"
+                       Margin="20,10,20,0" IsVisible="{Binding IsSearching}" />
+
         <!-- Notas. Sin padding en el ScrollViewer: los renglones van de borde a
              borde y el suyo propio es el que separa el texto del filo. -->
         <ScrollViewer>
@@ -331,10 +345,16 @@
                                FontWeight: la cara ya es ExtraBold y pedirle negrita
                                encima la sintetizaría una segunda vez, igual que en
                                el logotipo. -->
+                          <!-- El texto entra por Highlight y no por Text: lo que
+                               coincidió con la búsqueda se pinta, y eso pide dos
+                               colores dentro de un mismo TextBlock. -->
                           <Grid ColumnDefinitions="*,Auto">
-                            <TextBlock Text="{Binding Heading}" Classes="note-title"
+                            <TextBlock Classes="note-title"
                                        Classes.untitled="{Binding !HasTitle}"
-                                       TextTrimming="CharacterEllipsis" />
+                                       TextTrimming="CharacterEllipsis"
+                                       views:Highlight.Text="{Binding Heading}"
+                                       views:Highlight.Query="{Binding Query}"
+                                       views:Highlight.Brush="{DynamicResource OttoHighlight}" />
                             <TextBlock Grid.Column="1" Text="{Binding Subtitle}"
                                        Classes="note-meta" Margin="10,0,0,0"
                                        VerticalAlignment="Center" />
@@ -343,9 +363,12 @@
                           <!-- Recortada a cuatro renglones: la lista sirve para
                                encontrar la nota, no para leerla entera. El resto
                                aparece al abrirla. -->
-                          <TextBlock Text="{Binding Text}" Classes="note-body"
+                          <TextBlock Classes="note-body"
                                      TextWrapping="Wrap" MaxLines="4"
-                                     TextTrimming="CharacterEllipsis" />
+                                     TextTrimming="CharacterEllipsis"
+                                     views:Highlight.Text="{Binding Text}"
+                                     views:Highlight.Query="{Binding Query}"
+                                     views:Highlight.Brush="{DynamicResource OttoHighlight}" />
                         </StackPanel>
                       </Button>
 

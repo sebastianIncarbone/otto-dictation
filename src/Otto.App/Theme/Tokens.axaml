@@ -67,6 +67,11 @@
       <SolidColorBrush x:Key="OttoWarn" Color="#D97A08" />
       <SolidColorBrush x:Key="OttoDanger" Color="#D0021B" />
 
+      <!-- The design's accent-200, rgba(208,2,27,.18): the wash behind a search
+           term inside a note. Stronger than OttoAccentSoft on purpose — that one
+           is a surface tint, this one has to be legible under running text. -->
+      <SolidColorBrush x:Key="OttoHighlight" Color="#2ED0021B" />
+
       <!-- 0 1px 2px rgba(12,13,16,.06) and 0 4px 16px rgba(12,13,16,.08). These
            are what tell a card apart from the page it sits on once both are
            nearly white; without them the light theme has one flat surface. -->
@@ -100,6 +105,13 @@
       <SolidColorBrush x:Key="OttoOk" Color="#2FBE72" />
       <SolidColorBrush x:Key="OttoWarn" Color="#F0A03C" />
       <SolidColorBrush x:Key="OttoDanger" Color="#FF2438" />
+
+      <!-- Derived rather than copied. The design system never redefines its
+           accent-200 for the dark theme, so the token there is still the light
+           brand red at 18% — which on #0C0D10 is barely a smudge. This keeps the
+           ratio the design uses in the light theme (soft .10 to highlight .18)
+           and applies it to the dark accent-soft, .14, landing at .25. -->
+      <SolidColorBrush x:Key="OttoHighlight" Color="#40FF2438" />
 
       <!-- Far heavier than the light theme's — rgba(0,0,0,.4) and .45. A shadow
            tuned for white is invisible on #0C0D10. -->

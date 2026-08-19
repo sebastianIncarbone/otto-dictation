@@ -74,6 +74,12 @@ public sealed partial class NoteViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// The search this note came back from, so the view can show which words
+    /// earned it a place in the list. Empty when the list is not filtered.
+    /// </summary>
+    public string Query { get; init; } = string.Empty;
+
     [ObservableProperty] private string title;
     [ObservableProperty] private string text;
     [ObservableProperty] private bool isDirty;
