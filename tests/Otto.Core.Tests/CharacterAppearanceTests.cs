@@ -146,25 +146,38 @@ public class CharacterAppearanceTests
     }
 
     /// <summary>
-    /// The ring takes the same 144 px as the character. That is the point of it —
-    /// the same presence, without the performance — and the window is sized from
-    /// this constant, so a change here silently moves the overlay off its corner.
+    /// The canvas is the design's and does not move; the window is 40% smaller than
+    /// it.
+    ///
+    /// Two constants because they mean two different things. Every coordinate in
+    /// <see cref="OttoRing"/> is in canvas units, so conflating them would turn
+    /// "make the overlay smaller" from a one-number edit into a forty-number one —
+    /// and forty numbers that no longer match the design file are forty chances to
+    /// get one wrong.
     /// </summary>
     [Fact]
-    public void El_anillo_conserva_el_lienzo_del_diseño()
-        => Assert.Equal(144d, OttoRing.DesignSize);
+    public void El_anillo_se_dibuja_en_144_y_se_muestra_al_60_por_ciento()
+    {
+        Assert.Equal(144d, OttoRing.DesignSize);
+        Assert.Equal(0.6, OttoRing.WindowSize / OttoRing.DesignSize, precision: 10);
+    }
 
     /// <summary>
-    /// The three appearances are three sizes, and the ring is deliberately not the
-    /// small one. A test rather than a comment because the window reads these to
-    /// size itself, and two of them being equal is the kind of thing a later edit
-    /// makes true by accident.
+    /// The three appearances are three footprints, in the order they ask for
+    /// attention. A test rather than a comment because the window sizes itself from
+    /// these, and two of them becoming equal is the kind of thing a later edit does
+    /// by accident.
     /// </summary>
     [Fact]
-    public void El_punto_minimo_es_el_unico_que_achica_la_ventana()
+    public void Cada_apariencia_ocupa_menos_pantalla_que_la_anterior()
     {
-        Assert.True(OttoGlyph.DesignWidth < OttoRing.DesignSize);
-        Assert.True(OttoGlyph.DesignHeight < OttoRing.DesignSize);
+        // The character's side. CharacterWindow keeps its own copy private, and it
+        // is the canvas both 144-unit designs were drawn on.
+        const double character = 144;
+
+        Assert.True(OttoRing.WindowSize < character);
+        Assert.True(OttoGlyph.DesignWidth < OttoRing.WindowSize);
+        Assert.True(OttoGlyph.DesignHeight < OttoRing.WindowSize);
     }
 
     // ---- The settings round trip ----

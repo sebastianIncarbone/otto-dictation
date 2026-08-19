@@ -91,8 +91,8 @@ public partial class CharacterWindow : Window
                 ring = new OttoRing { State = state };
                 Host.Children.Add(ring);
 
-                Width = OttoRing.DesignSize;
-                Height = OttoRing.DesignSize;
+                Width = OttoRing.WindowSize;
+                Height = OttoRing.WindowSize;
                 break;
 
             default:

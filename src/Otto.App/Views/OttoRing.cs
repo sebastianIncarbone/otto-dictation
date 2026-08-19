@@ -30,17 +30,18 @@ public readonly record struct RingSpec(
 /// The middle overlay: a ring with audio bars and no face.
 ///
 /// <para>
-/// Section F17 of the redesign, and the third of three appearances. The character
+/// Section F17 of the redesign, and the middle of three appearances. The character
 /// is a drawing with poses and a personality; <see cref="OttoGlyph"/> is a dot and
-/// three lines that only change colour; this sits between them — the same 144 px
-/// of screen as the character, and none of the performance. It reads its state
-/// from shape and colour alone, which is why the same motif turns up in the tray
-/// icon and the window header.
+/// three lines that only change colour; this sits between them, and takes less
+/// screen than either the character or its own design canvas would suggest. It
+/// reads its state from shape and colour alone, which is why the same motif turns
+/// up in the tray icon and the window header.
 /// </para>
 /// <para>
 /// Everything is drawn on the design's own 144×144 canvas and scaled to the
 /// control's bounds, so the numbers below can be checked against the design file
-/// line by line without arithmetic in between.
+/// line by line without arithmetic in between — and so the overlay's size on
+/// screen is one constant to change rather than forty.
 /// </para>
 /// </summary>
 public sealed class OttoRing : Control
@@ -54,8 +55,27 @@ public sealed class OttoRing : Control
         set => SetValue(StateProperty, value);
     }
 
-    /// <summary>The design's canvas, and the window size this appearance asks for.</summary>
+    /// <summary>
+    /// The canvas the design was drawn on. Every coordinate in this file is in
+    /// these units, so they can be checked against the design file without
+    /// arithmetic in between.
+    ///
+    /// Not the size on screen — see <see cref="WindowSize"/>. Keeping the two apart
+    /// is what lets the overlay be resized without a single design number moving.
+    /// </summary>
     public const double DesignSize = 144;
+
+    /// <summary>
+    /// How much screen the ring actually takes: 40% less than the canvas it is
+    /// drawn on.
+    ///
+    /// The character needs its 144 px because the poses stop being distinguishable
+    /// below it. This has four states told by colour and one shape, and it read as
+    /// oversized at the character's size — it was borrowing a footprint it does not
+    /// use. Shrinking is free here precisely because nothing in the drawing is
+    /// measured in pixels.
+    /// </summary>
+    public const double WindowSize = DesignSize * 0.6;
 
     private const double Centre = DesignSize / 2;
     private const double Radius = 46;

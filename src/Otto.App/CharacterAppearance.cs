@@ -30,8 +30,9 @@ public enum CharacterAppearance
     Character,
 
     /// <summary>
-    /// A ring with audio bars and no face, 144×144. The same claim on the screen as
-    /// the character and none of the performance.
+    /// A ring with audio bars and no face. Drawn on the same 144×144 canvas as the
+    /// character but shown at 60% of it, because four states told by colour do not
+    /// need the room eight distinguishable poses do.
     /// </summary>
     Discreet,
 
