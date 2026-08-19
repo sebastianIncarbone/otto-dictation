@@ -358,10 +358,30 @@
         <Border DockPanel.Dock="Top" Padding="20,12"
                 BorderBrush="{DynamicResource OttoBorder}" BorderThickness="0,0,0,1"
                 IsVisible="{Binding !IsSelecting}">
-          <Grid ColumnDefinitions="*,Auto">
+          <!-- El tope de 420 vive en la columna y no en el campo. Un MaxWidth sobre
+               un control estirado lo CENTRA en el espacio que le sobra, y el
+               buscador tiene que quedar contra el margen izquierdo; una columna con
+               máximo crece hasta ahí y le deja el resto a la de al lado. -->
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*" MaxWidth="420" />
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
             <TextBox PlaceholderText="Buscar en tus notas" Text="{Binding Search}"
-                     Classes.filtering="{Binding IsSearching}" />
-            <Button Grid.Column="1" Content="Seleccionar" Margin="8,0,0,0" FontSize="12.5"
+                     Classes.filtering="{Binding IsSearching}">
+              <TextBox.InnerLeftContent>
+                <Canvas Width="16" Height="16" Margin="10,0,0,0" Opacity="0.5">
+                  <Ellipse Canvas.Left="2" Canvas.Top="2" Width="10" Height="10"
+                           Stroke="{DynamicResource OttoText}" StrokeThickness="1.6" />
+                  <Line StartPoint="11,11" EndPoint="15,15"
+                        Stroke="{DynamicResource OttoText}" StrokeThickness="1.6" />
+                </Canvas>
+              </TextBox.InnerLeftContent>
+            </TextBox>
+
+            <Button Grid.Column="2" Content="Seleccionar" Margin="8,0,0,0" FontSize="12.5"
                     Command="{Binding StartSelectingCommand}" />
           </Grid>
         </Border>
@@ -440,6 +460,18 @@
              borde y el suyo propio es el que separa el texto del filo. -->
         <ScrollViewer>
           <ItemsControl ItemsSource="{Binding Notes}">
+
+            <!-- Un WrapPanel y no un UniformGrid: las notas tienen alturas muy
+                 distintas, y el uniforme le daría a todas la altura de la más
+                 larga. Acá cada renglón de la grilla mide lo que mide su nota más
+                 alta, que es lo que hace el grid del diseño. -->
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <WrapPanel ItemWidth="{Binding $parent[ItemsControl].Bounds.Width,
+                                       Converter={x:Static views:NoteColumns.ItemWidth}}" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:NoteViewModel">
                 <Border Classes="note" Classes.editing="{Binding IsEditing}"
