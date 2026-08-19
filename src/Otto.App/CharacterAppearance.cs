@@ -3,8 +3,14 @@ using System.Text.Json.Serialization;
 namespace Otto.App;
 
 /// <summary>
-/// Which of the two overlays Otto floats on screen.
+/// Which of the three overlays Otto floats on screen.
 ///
+/// <para>
+/// They are a progression rather than a menu: the character has a personality, the
+/// discreet ring has a shape, the minimal glyph has a colour. Each one asks for
+/// less of the user's attention than the last, and all three answer the same two
+/// questions — is Otto on, and what is it doing.
+/// </para>
 /// <para>
 /// A separate choice from whether the overlay is shown at all, and deliberately so:
 /// "I do not want Otto on screen" and "I want Otto on screen but not performing"
@@ -22,6 +28,12 @@ public enum CharacterAppearance
 {
     /// <summary>The drawn character, 144×144, with poses and motion.</summary>
     Character,
+
+    /// <summary>
+    /// A ring with audio bars and no face, 144×144. The same claim on the screen as
+    /// the character and none of the performance.
+    /// </summary>
+    Discreet,
 
     /// <summary>A dot and three lines, 64×24, that only change colour.</summary>
     Minimal,

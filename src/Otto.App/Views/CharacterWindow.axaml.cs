@@ -22,6 +22,7 @@ public partial class CharacterWindow : Window
     private readonly IOverlayStyler? styler;
 
     private OttoCharacter? character;
+    private OttoRing? ring;
     private OttoGlyph? glyph;
 
     /// <summary>
@@ -73,23 +74,34 @@ public partial class CharacterWindow : Window
 
         Host.Children.Clear();
         character = null;
+        ring = null;
         glyph = null;
 
-        if (appearance == CharacterAppearance.Minimal)
+        switch (appearance)
         {
-            glyph = new OttoGlyph { State = state };
-            Host.Children.Add(glyph);
+            case CharacterAppearance.Minimal:
+                glyph = new OttoGlyph { State = state };
+                Host.Children.Add(glyph);
 
-            Width = OttoGlyph.DesignWidth;
-            Height = OttoGlyph.DesignHeight;
-        }
-        else
-        {
-            character = new OttoCharacter { State = state };
-            Host.Children.Add(character);
+                Width = OttoGlyph.DesignWidth;
+                Height = OttoGlyph.DesignHeight;
+                break;
 
-            Width = CharacterSide;
-            Height = CharacterSide;
+            case CharacterAppearance.Discreet:
+                ring = new OttoRing { State = state };
+                Host.Children.Add(ring);
+
+                Width = OttoRing.DesignSize;
+                Height = OttoRing.DesignSize;
+                break;
+
+            default:
+                character = new OttoCharacter { State = state };
+                Host.Children.Add(character);
+
+                Width = CharacterSide;
+                Height = CharacterSide;
+                break;
         }
 
         // The corner is measured from the window's own size, so a swap that changed
@@ -121,9 +133,10 @@ public partial class CharacterWindow : Window
         // Held the key and said nothing — a muted microphone looks exactly like
         // this, and without a reaction the user gets no signal at all.
         //
-        // Both reactions are poses, so they are the character's alone. The minimal
-        // overlay has nothing to say them with, and inventing a flash for it would
-        // be adding behaviour the design did not ask for.
+        // Both reactions are poses, so they are the character's alone. Neither the
+        // ring nor the glyph has anything to say them with — that is most of what
+        // being a quieter overlay means — and inventing a flash for either would be
+        // adding behaviour the design did not ask for.
         pipeline.HeardNothing += () =>
             Dispatcher.UIThread.Post(() => character?.React(OttoPose.Annoyed, 1.8));
     }
@@ -138,6 +151,7 @@ public partial class CharacterWindow : Window
         state = next;
 
         if (character is not null) character.State = next;
+        if (ring is not null) ring.State = next;
         if (glyph is not null) glyph.State = next;
     }
 

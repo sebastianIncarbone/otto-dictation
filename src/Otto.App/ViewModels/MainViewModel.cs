@@ -81,19 +81,26 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private CharacterAppearance appearance;
 
     /// <summary>
-    /// The two halves of the "Apariencia" choice, as the pair of booleans a radio
-    /// group binds to.
+    /// The three options of the "Apariencia" choice, as the booleans a radio group
+    /// binds to.
     ///
-    /// Written out rather than bound through an inverting converter because a
-    /// converter would leave the two radios independently settable, and the state
-    /// where neither — or both — is checked has no meaning. Here the enum is the
-    /// single value and these two are views onto it, so it cannot happen. Setting
-    /// one to false does nothing: unchecking is what the other one's check means.
+    /// Written out rather than derived, because anything that let the options be
+    /// set independently would allow the states that have no meaning — none
+    /// checked, or more than one. Here the enum is the single value and these are
+    /// views onto it, so neither can happen. Setting one to false does nothing:
+    /// unchecking is what another one's check means.
     /// </summary>
     public bool IsCharacterAppearance
     {
         get => Appearance == CharacterAppearance.Character;
         set { if (value) Appearance = CharacterAppearance.Character; }
+    }
+
+    /// <inheritdoc cref="IsCharacterAppearance"/>
+    public bool IsDiscreetAppearance
+    {
+        get => Appearance == CharacterAppearance.Discreet;
+        set { if (value) Appearance = CharacterAppearance.Discreet; }
     }
 
     /// <inheritdoc cref="IsCharacterAppearance"/>
@@ -103,9 +110,15 @@ public sealed partial class MainViewModel : ObservableObject
         set { if (value) Appearance = CharacterAppearance.Minimal; }
     }
 
+    /// <summary>
+    /// Every option is raised, not just the one that became true: the radio the
+    /// user did not click has to hear that it is now false, or the group shows two
+    /// checked at once.
+    /// </summary>
     partial void OnAppearanceChanged(CharacterAppearance value)
     {
         OnPropertyChanged(nameof(IsCharacterAppearance));
+        OnPropertyChanged(nameof(IsDiscreetAppearance));
         OnPropertyChanged(nameof(IsMinimalAppearance));
     }
 

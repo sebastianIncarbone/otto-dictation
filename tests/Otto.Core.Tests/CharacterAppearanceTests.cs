@@ -10,14 +10,15 @@ using Otto.Speech;
 namespace Otto.Core.Tests;
 
 /// <summary>
-/// The minimal overlay — a dot and three lines instead of the character.
+/// The two quieter overlays — the discreet ring and the minimal glyph — and the
+/// three-way choice between them and the character.
 ///
 /// <para>
 /// Two kinds of thing are pinned here. The first is the design contract:
-/// <see cref="OttoGlyph"/>'s colours and bar widths come from a design file this
-/// repository does not contain, so nothing but a test stops them drifting into
-/// "close enough" during an unrelated edit. They are public on the control for
-/// exactly that reason.
+/// <see cref="OttoRing"/>'s and <see cref="OttoGlyph"/>'s colours and geometry come
+/// from a design file this repository does not contain, so nothing but a test stops
+/// them drifting into "close enough" during an unrelated edit. They are public on
+/// the controls for exactly that reason.
 /// </para>
 /// <para>
 /// The second is the settings round trip, which is where the equivalent hotkey
@@ -77,6 +78,95 @@ public class CharacterAppearanceTests
         Assert.Equal(24d, OttoGlyph.DesignHeight);
     }
 
+    // ---- The discreet ring, section F17 ----
+
+    [Theory]
+    [InlineData(DictationState.Recording, 0xFF, 0x24, 0x38, 1.00, 6.0, 0.38)]
+    [InlineData(DictationState.Transcribing, 0xD9, 0x7A, 0x08, 1.00, 5.5, 0.34)]
+    public void El_anillo_usa_los_colores_exactos_del_diseño(
+        DictationState state, byte r, byte g, byte b, double strokeOpacity, double strokeWidth, double fillOpacity)
+    {
+        var spec = OttoRing.Spec(state);
+
+        Assert.Equal(Color.FromRgb(r, g, b), spec.Stroke);
+        Assert.Equal(strokeOpacity, spec.StrokeOpacity);
+        Assert.Equal(strokeWidth, spec.StrokeWidth);
+        Assert.Equal(fillOpacity, spec.FillOpacity);
+    }
+
+    /// <summary>
+    /// The two quiet states are white rings that differ only in how much of them
+    /// there is — which is the whole distinction between "waiting for you" and
+    /// "cannot help you yet", so collapsing them would erase it.
+    /// </summary>
+    [Fact]
+    public void El_anillo_en_reposo_y_cargando_se_distinguen_solo_por_la_opacidad()
+    {
+        var idle = OttoRing.Spec(DictationState.Idle);
+        var loading = OttoRing.Spec(DictationState.Loading);
+
+        Assert.Equal(Colors.White, idle.Stroke);
+        Assert.Equal(Colors.White, loading.Stroke);
+
+        Assert.Equal(0.55, idle.StrokeOpacity);
+        Assert.Equal(0.22, loading.StrokeOpacity);
+    }
+
+    /// <summary>
+    /// The disc behind the ring is the same near-black in every state. Only how
+    /// much desktop shows through it changes, so a state can never be read from the
+    /// fill colour by mistake.
+    /// </summary>
+    [Fact]
+    public void El_disco_del_anillo_es_el_mismo_negro_en_todos_los_estados()
+    {
+        var fills = new[]
+        {
+            DictationState.Idle, DictationState.Loading,
+            DictationState.Recording, DictationState.Transcribing,
+        }.Select(state => OttoRing.Spec(state).Fill).Distinct();
+
+        Assert.Single(fills);
+    }
+
+    /// <summary>
+    /// Listening is the only state that grows the bars, and it grows all three.
+    /// Everything else shows them at rest — the design's shape for "there is an
+    /// overlay here", not a reading of anything.
+    /// </summary>
+    [Fact]
+    public void Solo_escuchando_agranda_las_barras_del_anillo()
+    {
+        Assert.Equal(
+            [(61.5, 7d, 22d), (72d, 7d, 38d), (82.5, 7d, 14d)],
+            OttoRing.Bars(DictationState.Recording));
+
+        foreach (var quiet in new[] { DictationState.Idle, DictationState.Loading, DictationState.Transcribing })
+            Assert.Equal([(62d, 6d, 10d), (72d, 6d, 16d), (82d, 6d, 8d)], OttoRing.Bars(quiet));
+    }
+
+    /// <summary>
+    /// The ring takes the same 144 px as the character. That is the point of it —
+    /// the same presence, without the performance — and the window is sized from
+    /// this constant, so a change here silently moves the overlay off its corner.
+    /// </summary>
+    [Fact]
+    public void El_anillo_conserva_el_lienzo_del_diseño()
+        => Assert.Equal(144d, OttoRing.DesignSize);
+
+    /// <summary>
+    /// The three appearances are three sizes, and the ring is deliberately not the
+    /// small one. A test rather than a comment because the window reads these to
+    /// size itself, and two of them being equal is the kind of thing a later edit
+    /// makes true by accident.
+    /// </summary>
+    [Fact]
+    public void El_punto_minimo_es_el_unico_que_achica_la_ventana()
+    {
+        Assert.True(OttoGlyph.DesignWidth < OttoRing.DesignSize);
+        Assert.True(OttoGlyph.DesignHeight < OttoRing.DesignSize);
+    }
+
     // ---- The settings round trip ----
 
     [Fact]
@@ -111,20 +201,23 @@ public class CharacterAppearanceTests
     /// hand, so the enum is written as its name and not as the integer
     /// System.Text.Json would otherwise choose.
     /// </summary>
-    [Fact]
-    public void La_apariencia_se_guarda_como_texto_y_no_como_numero()
+    [Theory]
+    [InlineData(CharacterAppearance.Discreet, "Discreet")]
+    [InlineData(CharacterAppearance.Minimal, "Minimal")]
+    public void La_apariencia_se_guarda_como_texto_y_no_como_numero(
+        CharacterAppearance appearance, string expected)
     {
         var path = TempFile();
 
         try
         {
             var store = new SettingsStore(path);
-            store.Save(new Settings { CharacterAppearance = CharacterAppearance.Minimal });
+            store.Save(new Settings { CharacterAppearance = appearance });
 
             var written = File.ReadAllText(path);
 
-            Assert.Contains("\"Minimal\"", written);
-            Assert.Equal(CharacterAppearance.Minimal, store.Load().CharacterAppearance);
+            Assert.Contains($"\"{expected}\"", written);
+            Assert.Equal(appearance, store.Load().CharacterAppearance);
         }
         finally
         {
@@ -135,16 +228,17 @@ public class CharacterAppearanceTests
     // ---- The choice in the settings window ----
 
     /// <summary>
-    /// The pair of booleans the radio group binds to are views onto one enum, so
-    /// the states that have no meaning — neither checked, both checked — cannot be
+    /// The booleans the radio group binds to are views onto one enum, so the states
+    /// that have no meaning — none checked, more than one checked — cannot be
     /// reached from the interface.
     /// </summary>
     [Fact]
-    public void Los_dos_botones_son_vistas_de_un_solo_valor()
+    public void Los_botones_son_vistas_de_un_solo_valor()
     {
         var view = Build();
 
         Assert.True(view.IsCharacterAppearance);
+        Assert.False(view.IsDiscreetAppearance);
         Assert.False(view.IsMinimalAppearance);
 
         view.IsMinimalAppearance = true;
@@ -152,6 +246,48 @@ public class CharacterAppearanceTests
         Assert.Equal(CharacterAppearance.Minimal, view.Appearance);
         Assert.True(view.IsMinimalAppearance);
         Assert.False(view.IsCharacterAppearance);
+        Assert.False(view.IsDiscreetAppearance);
+    }
+
+    /// <summary>
+    /// Whichever option is chosen, it is the only one checked. Written as a sweep
+    /// over all three rather than as one case, because the failure this catches —
+    /// an option that forgets to turn another off — only appears for the specific
+    /// pair that was missed.
+    /// </summary>
+    [Theory]
+    [InlineData(CharacterAppearance.Character)]
+    [InlineData(CharacterAppearance.Discreet)]
+    [InlineData(CharacterAppearance.Minimal)]
+    public void Exactamente_una_apariencia_queda_marcada(CharacterAppearance chosen)
+    {
+        var view = Build();
+
+        view.Appearance = chosen;
+
+        var checkedOptions = new[]
+        {
+            view.IsCharacterAppearance,
+            view.IsDiscreetAppearance,
+            view.IsMinimalAppearance,
+        };
+
+        Assert.Single(checkedOptions, isChecked => isChecked);
+    }
+
+    /// <summary>
+    /// The middle option, which is the one the settings window gained last and the
+    /// one a three-way choice is easiest to drop on the floor.
+    /// </summary>
+    [Fact]
+    public void Elegir_discreto_llega_hasta_los_ajustes()
+    {
+        var view = Build();
+
+        view.IsDiscreetAppearance = true;
+
+        Assert.Equal(CharacterAppearance.Discreet, view.Appearance);
+        Assert.Equal(CharacterAppearance.Discreet, view.ApplyTo(new Settings()).CharacterAppearance);
     }
 
     /// <summary>
