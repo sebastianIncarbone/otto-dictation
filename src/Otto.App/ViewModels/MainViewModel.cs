@@ -253,13 +253,32 @@ public sealed partial class MainViewModel : ObservableObject
     {
         var view = new NoteViewModel(note, repository, clipboard);
         view.DeleteRequested += OnDeleteRequested;
+        view.EditStarted += OnEditStarted;
         return view;
+    }
+
+    /// <summary>
+    /// One note is being edited, so the others go back to being read.
+    ///
+    /// <para>
+    /// The list is the owner of this rule because no single note can be: each one
+    /// only knows about itself. <see cref="NoteViewModel.CloseEditor"/> declines
+    /// when it has unsaved changes, so opening a second note leaves the first one
+    /// open rather than discarding what was typed into it.
+    /// </para>
+    /// </summary>
+    private void OnEditStarted(NoteViewModel opened)
+    {
+        foreach (var note in Notes)
+            if (!ReferenceEquals(note, opened))
+                note.CloseEditor();
     }
 
     private async void OnDeleteRequested(NoteViewModel note)
     {
         await repository.DeleteAsync(note.Id);
         note.DeleteRequested -= OnDeleteRequested;
+        note.EditStarted -= OnEditStarted;
 
         Notes.Remove(note);
         Refresh();

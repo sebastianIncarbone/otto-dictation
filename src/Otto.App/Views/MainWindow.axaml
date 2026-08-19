@@ -43,6 +43,86 @@
       <Setter Property="LetterSpacing" Value="1" />
       <Setter Property="Opacity" Value="0.6" />
     </Style>
+
+    <!-- Una nota es un renglón de una lista, no una tarjeta.
+
+         El diseño las separa con una regla de 2px y nada más: sin fondo propio,
+         sin borde alrededor, sin sombra. Una tarjeta anuncia que su contenido es
+         una unidad aparte, y treinta notas seguidas no son treinta cosas aparte
+         — son una lista, y leerla de arriba a abajo es lo único que se hace acá.
+
+         La regla es de 2px sobre el borde al 10%, que es exactamente lo que pide
+         el diseño. La probé en 1px porque me pareció que 2px de negro al 10% se
+         veía blando, y me equivoqué: es un divisor ancho y suave a propósito, y
+         en 1px la lista se endurece. -->
+    <Style Selector="Border.note">
+      <Setter Property="Padding" Value="20,14" />
+      <Setter Property="BorderBrush" Value="{DynamicResource OttoBorder}" />
+      <Setter Property="BorderThickness" Value="0,0,0,2" />
+    </Style>
+
+    <!-- La nota abierta se tiñe con el acento apenas insinuado. Es lo único que
+         distingue "estoy escribiendo acá" del resto de la lista, ahora que la
+         fila no tiene ni borde ni elevación con los que hacerlo. -->
+    <Style Selector="Border.note.editing">
+      <Setter Property="Background" Value="{DynamicResource OttoAccentSoft}" />
+    </Style>
+
+    <!-- El bloque de lectura entero es el botón que abre la edición: no hay un
+         "Editar" en el diseño, y agregarlo sería un botón por nota para algo que
+         el texto ya invita a hacer. Plano en todos sus estados salvo el sutil
+         aviso de que se puede tocar. -->
+    <Style Selector="Button.note-open">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.note-open /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.note-open:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.note-open:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+
+    <Style Selector="TextBlock.note-title">
+      <Setter Property="FontFamily" Value="{DynamicResource OttoFontDisplay}" />
+      <Setter Property="FontSize" Value="15" />
+      <Setter Property="Foreground" Value="{DynamicResource OttoText}" />
+    </Style>
+
+    <!-- "Sin título" es un relleno, no un título, y se apaga para decirlo. Va por
+         HasTitle y no por comparar el texto: alguien puede llamar así a una nota. -->
+    <Style Selector="TextBlock.note-title.untitled">
+      <Setter Property="Foreground" Value="{DynamicResource OttoTextMuted}" />
+    </Style>
+
+    <!-- Fecha, aplicación y duración en monoespaciada: son tres datos que se
+         repiten renglón a renglón, y en una fuente de ancho fijo las columnas se
+         alinean solas sin que nadie las alinee. -->
+    <Style Selector="TextBlock.note-meta">
+      <Setter Property="FontFamily" Value="{DynamicResource OttoFontMono}" />
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Foreground" Value="{DynamicResource OttoTextMuted}" />
+    </Style>
+
+    <!-- La familia va explícita: el bloque de lectura es un Button, y el estilo
+         base de Button pide la cara SemiBold. Sin esto el cuerpo de cada nota la
+         hereda y la lista entera queda en negrita — que es exactamente lo que
+         pasó la primera vez que la miré. -->
+    <Style Selector="TextBlock.note-body">
+      <Setter Property="FontFamily" Value="{DynamicResource OttoFontUi}" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="LineHeight" Value="19.5" />
+      <Setter Property="Foreground" Value="{DynamicResource OttoText}" />
+    </Style>
   </Window.Styles>
 
   <DockPanel LastChildFill="True">
@@ -211,40 +291,100 @@
 
       <DockPanel LastChildFill="True" IsVisible="{Binding !IsProvisioning}">
 
-        <!-- Búsqueda -->
-        <TextBox DockPanel.Dock="Top" Margin="18,14,18,10"
-                 PlaceholderText="Buscar en tus notas…" Text="{Binding Search}" />
+        <!-- Búsqueda: en su propia franja, del ancho de la ventana y separada de
+             la lista por una línea. Filtrar es una acción sobre la lista entera,
+             no un elemento más adentro de ella. -->
+        <Border DockPanel.Dock="Top" Padding="20,12"
+                BorderBrush="{DynamicResource OttoBorder}" BorderThickness="0,0,0,1">
+          <TextBox PlaceholderText="Buscar en tus notas" Text="{Binding Search}" />
+        </Border>
 
         <!-- Vacío -->
-        <TextBlock DockPanel.Dock="Top" Margin="18,40,18,0"
+        <TextBlock DockPanel.Dock="Top" Margin="20,40,20,0"
                    Text="{Binding EmptyMessage}" TextWrapping="Wrap" TextAlignment="Center"
-                   Opacity="0.55" IsVisible="{Binding IsEmpty}" />
+                   Foreground="{DynamicResource OttoTextMuted}" IsVisible="{Binding IsEmpty}" />
 
-        <!-- Notas -->
-        <ScrollViewer Padding="18,0,18,18">
+        <!-- Notas. Sin padding en el ScrollViewer: los renglones van de borde a
+             borde y el suyo propio es el que separa el texto del filo. -->
+        <ScrollViewer>
           <ItemsControl ItemsSource="{Binding Notes}">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:NoteViewModel">
-                <Border Classes="card" Margin="0,0,0,10">
-                  <StackPanel Spacing="8">
+                <Border Classes="note" Classes.editing="{Binding IsEditing}">
+                  <StackPanel>
 
-                    <Grid ColumnDefinitions="*,Auto">
-                      <TextBox Text="{Binding Title}" PlaceholderText="{Binding Heading}"
-                               BorderThickness="0" Padding="0" FontWeight="SemiBold" />
-                      <TextBlock Grid.Column="1" Text="{Binding Subtitle}"
-                                 FontSize="11" Opacity="0.55" VerticalAlignment="Center" />
-                    </Grid>
+                    <!-- Lectura -->
+                    <StackPanel Spacing="6" IsVisible="{Binding !IsEditing}">
+                      <Button Classes="note-open" Command="{Binding BeginEditCommand}">
+                        <StackPanel Spacing="6">
 
-                    <TextBox Text="{Binding Text}" AcceptsReturn="True" TextWrapping="Wrap"
-                             BorderThickness="0" Padding="0" MaxHeight="220" />
+                          <!-- El título va en la cara expandida del diseño, sin
+                               FontWeight: la cara ya es ExtraBold y pedirle negrita
+                               encima la sintetizaría una segunda vez, igual que en
+                               el logotipo. -->
+                          <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Text="{Binding Heading}" Classes="note-title"
+                                       Classes.untitled="{Binding !HasTitle}"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Column="1" Text="{Binding Subtitle}"
+                                       Classes="note-meta" Margin="10,0,0,0"
+                                       VerticalAlignment="Center" />
+                          </Grid>
 
-                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-                      <!-- Guardar solo aparece si hay algo que guardar: un botón que
-                           no hace nada la mayor parte del tiempo es ruido. -->
-                      <Button Content="Guardar" Command="{Binding SaveCommand}"
-                              IsVisible="{Binding IsDirty}" />
-                      <Button Content="{Binding CopyLabel}" Command="{Binding CopyCommand}" />
-                      <Button Content="Borrar" Command="{Binding DeleteCommand}" />
+                          <!-- Recortada a cuatro renglones: la lista sirve para
+                               encontrar la nota, no para leerla entera. El resto
+                               aparece al abrirla. -->
+                          <TextBlock Text="{Binding Text}" Classes="note-body"
+                                     TextWrapping="Wrap" MaxLines="4"
+                                     TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                      </Button>
+
+                      <StackPanel Orientation="Horizontal" Spacing="2">
+                        <Button Classes="mini quiet" Content="{Binding CopyLabel}"
+                                Command="{Binding CopyCommand}" />
+                        <Button Classes="mini quiet" Content="Eliminar"
+                                Command="{Binding DeleteCommand}" />
+                      </StackPanel>
+                    </StackPanel>
+
+                    <!-- Edición -->
+                    <StackPanel Spacing="8" IsVisible="{Binding IsEditing}">
+
+                      <!-- Escape es la salida sin guardar. El diseño no dibuja un
+                           Cancelar, y un botón para descartar al lado de uno para
+                           guardar invita al accidente que justamente no se puede
+                           deshacer. -->
+                      <StackPanel.KeyBindings>
+                        <KeyBinding Gesture="Escape" Command="{Binding CancelEditCommand}" />
+                      </StackPanel.KeyBindings>
+
+                      <TextBox Text="{Binding Title}" PlaceholderText="Sin título"
+                               FontFamily="{DynamicResource OttoFontDisplay}" FontSize="15" />
+
+                      <TextBlock Text="{Binding Subtitle}" Classes="note-meta" />
+
+                      <TextBox Text="{Binding Text}" AcceptsReturn="True" TextWrapping="Wrap"
+                               FontSize="13" LineHeight="19.5" MinHeight="140" MaxHeight="260" />
+
+                      <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto">
+                        <Button Classes="mini quiet" Content="{Binding CopyLabel}"
+                                Command="{Binding CopyCommand}" />
+                        <Button Grid.Column="1" Classes="mini quiet" Content="Eliminar"
+                                Command="{Binding DeleteCommand}" />
+
+                        <TextBlock Grid.Column="3" Text="Cambios sin guardar"
+                                   FontSize="11" Margin="0,0,8,0" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource OttoTextMuted}"
+                                   IsVisible="{Binding IsDirty}" />
+
+                        <!-- Presente pero apagado cuando no hay nada que guardar:
+                             en edición el botón es parte de la forma del renglón, y
+                             hacerlo aparecer y desaparecer movería todo lo demás
+                             mientras alguien escribe. -->
+                        <Button Grid.Column="4" Classes="mini primary" Content="Guardar"
+                                Command="{Binding SaveCommand}" IsEnabled="{Binding IsDirty}" />
+                      </Grid>
                     </StackPanel>
 
                   </StackPanel>

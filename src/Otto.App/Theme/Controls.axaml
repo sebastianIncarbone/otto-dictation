@@ -110,6 +110,26 @@
     <Setter Property="Foreground" Value="{DynamicResource OttoTextFaint}" />
   </Style>
 
+  <!-- The row-scale button: the actions that belong to one item in a list rather
+       than to the screen. Sized down from the base rather than restyled, so a
+       small Copiar is recognisably the same control as a full-size Guardar. -->
+  <Style Selector="Button.mini">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Padding" Value="8,3" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="BorderThickness" Value="0" />
+  </Style>
+
+  <!-- Present but not competing. A note's own actions sit under its text and are
+       the least important thing in the row until someone goes looking for them,
+       which is why they come back to full strength under the pointer. -->
+  <Style Selector="Button.quiet">
+    <Setter Property="Opacity" Value="0.7" />
+  </Style>
+  <Style Selector="Button.quiet:pointerover">
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+
   <Style Selector="CheckBox, RadioButton">
     <Setter Property="FontFamily" Value="{DynamicResource OttoFontUi}" />
     <Setter Property="FontSize" Value="14" />
