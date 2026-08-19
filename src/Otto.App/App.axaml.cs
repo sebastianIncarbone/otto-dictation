@@ -61,6 +61,13 @@ public partial class App : Application
             SetUpTray(desktop);
             SetUpCharacter();
 
+            // Launching Otto while it is already running exits that second process
+            // and lands here instead, which is the only way the launch has of
+            // producing anything on screen. The knock arrives on a thread-pool
+            // thread, so it is posted rather than run where it lands.
+            services.GetRequiredService<SingleInstance>().Activated += () =>
+                Avalonia.Threading.Dispatcher.UIThread.Post(ShowWindow);
+
             var needsProvisioning = services.GetRequiredService<ModelProvisioner>().NeedsProvisioning;
 
             // Progress<T> captures the ambient SynchronizationContext at
@@ -305,6 +312,12 @@ public partial class App : Application
 
             Shell = window;
         }
+
+        // Restored before being shown. Show() on a minimised window leaves it
+        // minimised, so without this the tray click — and the second launch that
+        // now routes here — would look like nothing happened, which is the exact
+        // failure this path exists to remove.
+        if (window.WindowState == WindowState.Minimized) window.WindowState = WindowState.Normal;
 
         window.Show();
         window.Activate();

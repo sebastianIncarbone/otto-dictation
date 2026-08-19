@@ -11,6 +11,12 @@ using Otto.PostProcessing;
 using Otto.Storage;
 
 // Otto starts minimised to the tray. There is no window until you ask for one.
+//
+// Launching Otto again is one of the ways of asking. Claimed here, ahead of the
+// GPU probe and the service graph below, so a duplicate launch costs a mutex and
+// a signal rather than a second copy of everything Otto owns.
+var instance = SingleInstance.Claim();
+if (instance is null) return;
 
 var dataDir = Path.Combine(
     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Otto");
@@ -48,6 +54,7 @@ services.AddLogging(builder => builder
 
 services.AddSingleton(settingsStore);
 services.AddSingleton(settings);
+services.AddSingleton(instance);
 
 services.AddSingleton(provisioningOptions);
 services.AddSingleton<IModelSource, HuggingFaceModelSource>();
