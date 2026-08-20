@@ -52,6 +52,10 @@ public partial class App : Application
     {
         services = Services;
 
+        // The platform is initialised by now, which is the earliest the UI thread's
+        // dispatcher exists to hook. Everything below runs on that thread.
+        Crash.InstallUiHandler(services.GetRequiredService<ILogger<App>>());
+
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             // Otto lives in the tray. Closing the last window is not a reason to

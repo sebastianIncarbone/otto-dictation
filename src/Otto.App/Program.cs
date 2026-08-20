@@ -47,6 +47,12 @@ internal static class Program
         var modelsDir = Path.Combine(dataDir, "models");
         var databasePath = Path.Combine(dataDir, "otto.db");
 
+        // Before the probe, before the settings, before the service graph: from
+        // here on anything that throws is written down. Otto is a WinExe, so the
+        // console sink below is a no-op in every real run — this is the record.
+        var logFile = new LogFile(Path.Combine(dataDir, "logs", "otto.log"));
+        Crash.Install(logFile);
+
         // Which model to download is decided BEFORE downloading it, and depends on
         // whether this machine has a GPU: 1.6 GB against 150 MB, and 0.7 s per
         // dictation against 17 s.
@@ -73,7 +79,12 @@ internal static class Program
 
         services.AddLogging(builder => builder
             .AddSimpleConsole(o => { o.SingleLine = true; o.TimestampFormat = "HH:mm:ss "; })
+            .AddProvider(new FileLoggerProvider(logFile))
             .SetMinimumLevel(LogLevel.Information));
+
+        // Registered so the UI-thread handler, which is installed once Avalonia is
+        // up, reports through the same file as everything else.
+        services.AddSingleton(logFile);
 
         services.AddSingleton(settingsStore);
         services.AddSingleton(settings);
