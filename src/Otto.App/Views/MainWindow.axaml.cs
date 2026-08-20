@@ -20,6 +20,21 @@ public partial class MainWindow : Window
         AddHandler(KeyDownEvent, OnCaptureKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
     }
 
+    /// <summary>
+    /// Minimises. The bar is marked up with <c>WindowDecorationProperties</c>, so
+    /// dragging, double-click to maximise and edge snapping are the system's job;
+    /// what the buttons do when clicked is still ours.
+    /// </summary>
+    private void OnMinimiseClick(object? sender, RoutedEventArgs e) =>
+        WindowState = WindowState.Minimized;
+
+    /// <summary>
+    /// Closes, which the window's own Closing handler turns into hiding — Otto lives
+    /// in the tray and the button on the bar means the same thing the system's one
+    /// meant.
+    /// </summary>
+    private void OnCloseClick(object? sender, RoutedEventArgs e) => Close();
+
     protected override void OnDataContextChanged(EventArgs e)
     {
         base.OnDataContextChanged(e);

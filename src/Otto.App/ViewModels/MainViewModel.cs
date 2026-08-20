@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Threading.Tasks;
 using Avalonia.Input.Platform;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -19,6 +20,7 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly string databasePath;
     private readonly ProvisioningOptions provisioningOptions;
     private readonly IHotkeyAvailability hotkeyAvailability;
+    private readonly Func<IStorageProvider?>? storage;
 
     /// <summary>Fallback <see cref="ListeningLabel"/> reads while <c>pipeline.RegisteredHotkey</c> is still null (Loading).</summary>
     private readonly HotkeyBinding startupHotkey;
@@ -38,7 +40,14 @@ public sealed partial class MainViewModel : ObservableObject
         string databasePath,
         Func<IClipboard?> clipboard,
         ProvisioningOptions provisioningOptions,
-        IHotkeyAvailability hotkeyAvailability)
+        IHotkeyAvailability hotkeyAvailability,
+
+        // Resolved lazily and optional for the same reason the clipboard is: it
+        // belongs to a window, and this view model is built before there is one.
+        // Left out — as every test leaves it out — exporting finds nowhere to put a
+        // file and declines, which is the honest answer when there is no window to
+        // ask through. Program.cs is the one place that passes it.
+        Func<IStorageProvider?>? storage = null)
     {
         this.repository = repository;
         this.pipeline = pipeline;
@@ -47,6 +56,7 @@ public sealed partial class MainViewModel : ObservableObject
         this.databasePath = databasePath;
         this.provisioningOptions = provisioningOptions;
         this.hotkeyAvailability = hotkeyAvailability;
+        this.storage = storage;
 
         startupHotkey = settings.ToBinding();
         savedHotkey = startupHotkey;
@@ -69,6 +79,24 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private DictationState state;
     [ObservableProperty] private string search = "";
     [ObservableProperty] private bool isSettingsOpen;
+
+    /// <summary>
+    /// Whether the notes are the thing on screen right now.
+    ///
+    /// <para>
+    /// The three things the body can be — the notes, the settings, the first
+    /// download — are alternatives, not layers. Settings used to unfold above the
+    /// list and leave the search field and Seleccionar peeking out underneath,
+    /// which read as a panel that had dropped open over a screen still waiting
+    /// behind it. It is a screen of its own, so it takes the whole space.
+    /// </para>
+    /// <para>
+    /// Expressed here rather than as two conditions in the view because XAML has no
+    /// "and": the alternative is a second copy of this rule written in a binding,
+    /// where nothing can check it.
+    /// </para>
+    /// </summary>
+    public bool IsShowingNotes => !IsProvisioning && !IsSettingsOpen;
 
     [ObservableProperty] private string language;
     [ObservableProperty] private bool startWithWindows;
@@ -141,6 +169,203 @@ public sealed partial class MainViewModel : ObservableObject
 
     public bool IsEmpty => Notes.Count == 0;
 
+    /// <summary>Whether the list on screen is a filtered one rather than all of it.</summary>
+    public bool IsSearching => !string.IsNullOrWhiteSpace(Search);
+
+    /// <summary>
+    /// Whether the list is picking notes rather than reading them.
+    ///
+    /// A mode rather than a permanent row of checkboxes, because acting on several
+    /// notes at once is the rare thing here and reading them is the common one.
+    /// </summary>
+    [ObservableProperty] private bool isSelecting;
+
+    /// <summary>
+    /// Pushed down to every note, and cleared on the way out. Each row binds to its
+    /// own copy — the alternative is every row reaching up through the visual tree
+    /// for the window's data context, which is the same fact expressed as a longer
+    /// and more fragile binding.
+    /// </summary>
+    partial void OnIsSelectingChanged(bool value)
+    {
+        foreach (var note in Notes) note.IsSelecting = value;
+
+        ExportError = "";
+        RefreshSelection();
+    }
+
+    public int SelectedCount => Notes.Count(note => note.IsSelected);
+
+    public bool HasSelection => SelectedCount > 0;
+
+    public string SelectionLabel => SelectedCount == 1
+        ? "1 nota seleccionada"
+        : $"{SelectedCount} notas seleccionadas";
+
+    /// <summary>The delete button names its own blast radius rather than just "Eliminar".</summary>
+    public string DeleteSelectedLabel => $"Eliminar {SelectedCount}";
+
+    /// <summary>
+    /// The second step before a bulk delete.
+    ///
+    /// <para>
+    /// Not in the design, which draws the button and nothing after it. Added
+    /// because this repository already took a position on destructive actions that
+    /// name a number — the uninstall asks twice, and the reason written next to it
+    /// is that "borrar mis datos" is abstract and "borrar 340 notas" is not. One
+    /// click that removes ninety dictations with no way back is the same case, and
+    /// deleting one note from its own row is not: that one is a row somebody is
+    /// looking straight at.
+    /// </para>
+    /// </summary>
+    [ObservableProperty] private bool isConfirmingDeleteSelected;
+
+    /// <inheritdoc cref="IsConfirmingDeleteSelected"/>
+    public string DeleteSelectedWarning => SelectedCount == 1
+        ? "Se borra 1 nota y no se puede recuperar."
+        : $"Se borran {SelectedCount} notas y no se pueden recuperar.";
+
+    /// <summary>
+    /// Shown when a save could not be completed, and only then.
+    ///
+    /// The picker is its own confirmation on the way in — somebody chose the folder
+    /// and the name — so success needs no announcement. A failure does: an export
+    /// that quietly writes nothing leaves a person believing they have a copy.
+    /// </summary>
+    [ObservableProperty] private string exportError = "";
+
+    /// <summary>
+    /// Writes the picked notes to a file the person chooses.
+    ///
+    /// <para>
+    /// The formatting lives in <see cref="NoteExport"/> and is tested there. What is
+    /// here is the part that cannot be: a dialog, and a stream.
+    /// </para>
+    /// </summary>
+    [RelayCommand]
+    private async Task ExportSelectedAsync(string? format)
+    {
+        ExportError = "";
+
+        var picked = Notes.Where(note => note.IsSelected).ToList();
+
+        if (picked.Count == 0 || storage?.Invoke() is not { } provider) return;
+
+        var markdown = format == "md";
+
+        try
+        {
+            var file = await provider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "Exportar notas",
+                SuggestedFileName = NoteExport.SuggestedName(DateTimeOffset.Now, markdown),
+                DefaultExtension = markdown ? "md" : "txt",
+            });
+
+            // Cancelling the dialog is an answer, not a failure. Nothing to report
+            // and nothing to clean up.
+            if (file is null) return;
+
+            await using var stream = await file.OpenWriteAsync();
+            await using var writer = new StreamWriter(stream, NoteExport.Encoding);
+
+            await writer.WriteAsync(markdown
+                ? NoteExport.ToMarkdown(picked)
+                : NoteExport.ToPlainText(picked));
+        }
+        catch (Exception)
+        {
+            // A full disk, a folder that turned read-only, a drive pulled out
+            // mid-save. Otto keeps running — losing an export is not losing a note —
+            // but the person has to know the copy they think they made is not there.
+            ExportError = "No se pudo exportar.";
+            return;
+        }
+
+        IsSelecting = false;
+    }
+
+    /// <inheritdoc cref="IsConfirmingDeleteSelected"/>
+    [RelayCommand]
+    private void ConfirmDeleteSelected() => IsConfirmingDeleteSelected = true;
+
+    /// <inheritdoc cref="IsConfirmingDeleteSelected"/>
+    [RelayCommand]
+    private void CancelDeleteSelected() => IsConfirmingDeleteSelected = false;
+
+    private void RefreshSelection()
+    {
+        OnPropertyChanged(nameof(SelectedCount));
+        OnPropertyChanged(nameof(HasSelection));
+        OnPropertyChanged(nameof(SelectionLabel));
+        OnPropertyChanged(nameof(DeleteSelectedLabel));
+        OnPropertyChanged(nameof(DeleteSelectedWarning));
+
+        // Changing the set invalidates the question: "se borran 3 notas" was asked
+        // about three particular notes, and answering yes to it after a fourth was
+        // ticked would be answering something nobody was asked.
+        IsConfirmingDeleteSelected = false;
+    }
+
+    /// <summary>
+    /// Enters selection mode, closing whatever was open first. An editor left
+    /// underneath would be a row in two states at once, and its Guardar would sit
+    /// among a set of buttons that act on entirely different notes.
+    /// </summary>
+    [RelayCommand]
+    private void StartSelecting()
+    {
+        foreach (var note in Notes) note.CloseEditor();
+
+        IsSelecting = true;
+    }
+
+    [RelayCommand]
+    private void CancelSelecting() => IsSelecting = false;
+
+    /// <summary>
+    /// Everything currently listed, which during a search is the search's result
+    /// and not the whole database. "Todas" has to mean the same set the person can
+    /// see, or the count under it describes notes that are not on screen.
+    /// </summary>
+    [RelayCommand]
+    private void SelectAll()
+    {
+        foreach (var note in Notes) note.IsSelected = true;
+    }
+
+    /// <summary>
+    /// Deletes the picked notes, one repository call each.
+    ///
+    /// The collection is copied first: removing from <see cref="Notes"/> while
+    /// walking it is the classic way to skip every second item, and here the items
+    /// being skipped are the ones somebody asked to delete.
+    /// </summary>
+    [RelayCommand]
+    private async Task DeleteSelectedAsync()
+    {
+        foreach (var note in Notes.Where(note => note.IsSelected).ToList())
+        {
+            await repository.DeleteAsync(note.Id);
+
+            Forget(note);
+            Notes.Remove(note);
+        }
+
+        IsConfirmingDeleteSelected = false;
+        IsSelecting = false;
+        Refresh();
+    }
+
+    /// <summary>
+    /// How many notes the search found, shown above them.
+    ///
+    /// A filtered list looks exactly like a short one, and without this the only
+    /// way to tell "your search found three" from "you have three notes" is to
+    /// remember what you typed.
+    /// </summary>
+    public string ResultCount => Notes.Count == 1 ? "1 NOTA" : $"{Notes.Count} NOTAS";
+
     /// <summary>
     /// Same alert rule as <see cref="StatusText"/>, but a search wins over it.
     ///
@@ -158,11 +383,41 @@ public sealed partial class MainViewModel : ObservableObject
     /// worse than none.
     /// </para>
     /// </summary>
-    public string EmptyMessage => !string.IsNullOrWhiteSpace(Search)
+    public string EmptyHeading => IsSearching
         ? $"Nada que coincida con «{Search}»."
         : HasHotkeyAlert
             ? HotkeyAlertMessage
-            : $"Todavía no dictaste nada.\nMantené {ListeningLabel} en cualquier programa y hablá.";
+            : "Todavía no dictaste nada.";
+
+    /// <summary>
+    /// Whether the empty list is the one that means "you have not started yet",
+    /// rather than a search that found nothing or a hotkey that failed.
+    ///
+    /// It is the only one of the three the design illustrates, and the only one
+    /// that gets a second line. Telling somebody to hold a hotkey is an invitation,
+    /// and the other two are not moments to be invited into anything.
+    /// </summary>
+    public bool HasNoDictationsYet => !IsSearching && !HasHotkeyAlert;
+
+    /// <inheritdoc cref="HasNoDictationsYet"/>
+    public string EmptyDetail => HasNoDictationsYet
+        ? $"Mantené {ListeningLabel} en cualquier programa y hablá."
+        : string.Empty;
+
+    /// <summary>
+    /// The empty slot's three parts move together — each of them reads
+    /// <see cref="Search"/>, <see cref="HasHotkeyAlert"/> or
+    /// <see cref="ListeningLabel"/> — so they are renotified together. Raised one
+    /// at a time across five call sites, the one that gets forgotten is a slot
+    /// left showing the previous state, which is the failure this whole
+    /// arrangement is built to avoid.
+    /// </summary>
+    private void RefreshEmpty()
+    {
+        OnPropertyChanged(nameof(EmptyHeading));
+        OnPropertyChanged(nameof(EmptyDetail));
+        OnPropertyChanged(nameof(HasNoDictationsYet));
+    }
 
     /// <summary>
     /// <c>DictationPipeline</c> fires <c>StateChanged</c> from whatever thread the
@@ -197,12 +452,32 @@ public sealed partial class MainViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(StatusText));
         OnPropertyChanged(nameof(ListeningLabel));
-        OnPropertyChanged(nameof(EmptyMessage));
+        RefreshEmpty();
         OnPropertyChanged(nameof(HotkeyChangePending));
+        OnPropertyChanged(nameof(IsListening));
+        OnPropertyChanged(nameof(IsWorking));
     }
 
     /// <summary>
-    /// <see cref="EmptyMessage"/> reads <see cref="Search"/> directly, but nothing
+    /// The status line's emphasis, as the booleans a style selector binds to.
+    ///
+    /// The redesign gives the two active states their own colour and a heavier
+    /// weight, and leaves the two quiet ones muted — attention belongs to the
+    /// moments when Otto is doing something with your voice, not to the hours it
+    /// spends waiting.
+    ///
+    /// Both go false under <see cref="HasHotkeyAlert"/>. That failure leaves
+    /// <see cref="State"/> stuck at <see cref="DictationState.Loading"/> forever, so
+    /// neither would fire anyway — but stating it here means the alert's own styling
+    /// cannot be fought over by a state that is no longer moving.
+    /// </summary>
+    public bool IsListening => !HasHotkeyAlert && State == DictationState.Recording;
+
+    /// <inheritdoc cref="IsListening"/>
+    public bool IsWorking => !HasHotkeyAlert && State == DictationState.Transcribing;
+
+    /// <summary>
+    /// <see cref="EmptyHeading"/> reads <see cref="Search"/> directly, but nothing
     /// generated for <see cref="Search"/> notifies it. Raising it here — rather
     /// than relying only on <see cref="Refresh"/> at the tail of the fire-and-forget
     /// <see cref="ReloadAsync"/> — keeps it accurate even when the repository call
@@ -211,9 +486,18 @@ public sealed partial class MainViewModel : ObservableObject
     /// </summary>
     partial void OnSearchChanged(string value)
     {
-        OnPropertyChanged(nameof(EmptyMessage));
+        RefreshEmpty();
+        OnPropertyChanged(nameof(IsSearching));
         _ = ReloadAsync();
     }
+
+    /// <summary>
+    /// The way back out of a search that found nothing. Clearing the box by hand
+    /// is not hard, but it is the only thing left to do at that point, and the
+    /// screen may as well say so.
+    /// </summary>
+    [RelayCommand]
+    private void ClearSearch() => Search = string.Empty;
 
     public async Task ReloadAsync()
     {
@@ -229,18 +513,64 @@ public sealed partial class MainViewModel : ObservableObject
         Refresh();
     }
 
+    /// <summary>
+    /// The query is stamped on at construction rather than bound. A note's rows
+    /// are rebuilt on every search — <see cref="OnSearchChanged"/> reloads — so the
+    /// value can never go stale, and a live binding would only give every note on
+    /// screen something else to listen to.
+    /// </summary>
     private NoteViewModel Wrap(Note note)
     {
-        var view = new NoteViewModel(note, repository, clipboard);
+        var view = new NoteViewModel(note, repository, clipboard)
+        {
+            Query = Search,
+
+            // A note arriving mid-selection — a dictation saved while the list is
+            // being picked through — joins the mode rather than showing up as the
+            // one row without a checkbox.
+            IsSelecting = IsSelecting,
+        };
+
         view.DeleteRequested += OnDeleteRequested;
+        view.EditStarted += OnEditStarted;
+        view.SelectionChanged += RefreshSelection;
         return view;
+    }
+
+    /// <summary>
+    /// Unsubscribes everything <see cref="Wrap"/> attached. One place, because a
+    /// handler dropped from one of the two removal paths and not the other is a
+    /// note that keeps answering after it is gone.
+    /// </summary>
+    private void Forget(NoteViewModel note)
+    {
+        note.DeleteRequested -= OnDeleteRequested;
+        note.EditStarted -= OnEditStarted;
+        note.SelectionChanged -= RefreshSelection;
+    }
+
+    /// <summary>
+    /// One note is being edited, so the others go back to being read.
+    ///
+    /// <para>
+    /// The list is the owner of this rule because no single note can be: each one
+    /// only knows about itself. <see cref="NoteViewModel.CloseEditor"/> declines
+    /// when it has unsaved changes, so opening a second note leaves the first one
+    /// open rather than discarding what was typed into it.
+    /// </para>
+    /// </summary>
+    private void OnEditStarted(NoteViewModel opened)
+    {
+        foreach (var note in Notes)
+            if (!ReferenceEquals(note, opened))
+                note.CloseEditor();
     }
 
     private async void OnDeleteRequested(NoteViewModel note)
     {
         await repository.DeleteAsync(note.Id);
-        note.DeleteRequested -= OnDeleteRequested;
 
+        Forget(note);
         Notes.Remove(note);
         Refresh();
     }
@@ -260,7 +590,10 @@ public sealed partial class MainViewModel : ObservableObject
     private void Refresh()
     {
         OnPropertyChanged(nameof(IsEmpty));
-        OnPropertyChanged(nameof(EmptyMessage));
+        RefreshEmpty();
+        OnPropertyChanged(nameof(IsSearching));
+        OnPropertyChanged(nameof(ResultCount));
+        RefreshSelection();
     }
 
     [RelayCommand]
@@ -303,6 +636,8 @@ public sealed partial class MainViewModel : ObservableObject
     partial void OnIsSettingsOpenChanged(bool value)
     {
         if (!value) CancelHotkeyCapture();
+
+        OnPropertyChanged(nameof(IsShowingNotes));
     }
 
     /// <summary>The binding being edited — a pure function of <see cref="Captured"/>, never typed independently.</summary>
@@ -311,7 +646,7 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>
     /// What Otto is actually listening on: what <c>DictationPipeline</c> registered, or
     /// — while that is still null (Loading) — what Otto started up with. Read by
-    /// <see cref="StatusText"/> and <see cref="EmptyMessage"/>, never by
+    /// <see cref="StatusText"/> and <see cref="EmptyHeading"/>, never by
     /// <see cref="HotkeyLabel"/>, so the edited value can never be mistaken for the one in effect.
     /// </summary>
     public string ListeningLabel => HotkeyLabels.For(pipeline.RegisteredHotkey ?? startupHotkey);
@@ -441,7 +776,7 @@ public sealed partial class MainViewModel : ObservableObject
     /// <c>DictationPipeline.StartAsync</c> threw a <see cref="HotkeyRegistrationException"/>.
     /// Once that happens <see cref="State"/> is stuck at <see cref="DictationState.Loading"/>
     /// forever — nothing retries and nothing exits, because the hotkey <em>is</em> the
-    /// dictation here — so <see cref="StatusText"/> and <see cref="EmptyMessage"/> both
+    /// dictation here — so <see cref="StatusText"/> and <see cref="EmptyHeading"/> both
     /// have to stop repeating "Cargando modelo…" and say what actually happened instead.
     /// </summary>
     [ObservableProperty] private bool hasHotkeyAlert;
@@ -467,7 +802,9 @@ public sealed partial class MainViewModel : ObservableObject
             : $"No se pudo activar el atajo {ListeningLabel}. Elegí uno distinto en Configuración.";
 
         OnPropertyChanged(nameof(StatusText));
-        OnPropertyChanged(nameof(EmptyMessage));
+        RefreshEmpty();
+        OnPropertyChanged(nameof(IsListening));
+        OnPropertyChanged(nameof(IsWorking));
     }
 
     /// <summary>
@@ -590,6 +927,9 @@ public sealed partial class MainViewModel : ObservableObject
     /// somewhere to live; only <see cref="ProvisioningState.Ready"/> turns it off.
     /// </summary>
     [ObservableProperty] private bool isProvisioning;
+
+    /// <inheritdoc cref="IsShowingNotes"/>
+    partial void OnIsProvisioningChanged(bool value) => OnPropertyChanged(nameof(IsShowingNotes));
 
     [ObservableProperty] private string provisioningText = "";
     [ObservableProperty] private string provisioningDetail = "";

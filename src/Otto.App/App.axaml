@@ -5,14 +5,18 @@
 
   <Application.Styles>
     <FluentTheme />
+
+    <!-- After Fluent, so these win. Fluent stays underneath for everything the
+         redesign does not speak about — scrollbars, menus, the caret. -->
+    <StyleInclude Source="avares://Otto.App/Theme/Controls.axaml" />
   </Application.Styles>
 
   <Application.Resources>
-    <!-- Ámbar de luz de grabación sobre azul de tinta: la paleta viene del objeto,
-         no de una plantilla. -->
-    <Color x:Key="OttoAmber">#E8A33D</Color>
-    <Color x:Key="OttoInk">#141B2B</Color>
-    <SolidColorBrush x:Key="AmberBrush" Color="{StaticResource OttoAmber}" />
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://Otto.App/Theme/Tokens.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
   </Application.Resources>
 
 </Application>

@@ -1,10 +1,19 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <!-- El personaje. Es el único binario que el repositorio acepta: arte
-         autoral, estable, y de él salen tanto el overlay como el .ico. Si la
-         carpeta no existe, el glob queda vacío y Otto dibuja la cara de
-         respaldo. -->
+    <!-- Los dos binarios que el repositorio acepta, y por qué.
+
+         El personaje: arte autoral, estable, y de él salen tanto el overlay como
+         el .ico. Si la carpeta no existe, el glob queda vacío y Otto dibuja la
+         cara de respaldo.
+
+         Las fuentes (Assets\fonts): Archivo y JetBrains Mono, las del rediseño.
+         Viajan con el binario porque la alternativa es pedirlas a Google Fonts al
+         arrancar, y eso contradice la promesa de funcionar sin internet. Ambas son
+         OFL — libres de embeber y redistribuir — y sus licencias van al lado, que
+         es lo que la OFL exige. Son instancias estáticas y no la fuente variable:
+         Avalonia no expone ejes de variación, así que el ancho expandido que pide
+         el diseño sólo se alcanza con la cara ya instanciada. -->
     <AvaloniaResource Include="Assets\**" />
   </ItemGroup>
 
@@ -18,7 +27,6 @@
 
   <ItemGroup>
     <PackageReference Include="Avalonia.Desktop" Version="12.1.1" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.1" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.1" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.11" />

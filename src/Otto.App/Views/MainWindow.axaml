@@ -1,43 +1,281 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Otto.App.ViewModels"
+        xmlns:views="using:Otto.App.Views"
         x:Class="Otto.App.Views.MainWindow"
         x:DataType="vm:MainViewModel"
         Title="Otto"
         Width="560" Height="700"
         MinWidth="420" MinHeight="420"
-        WindowStartupLocation="CenterScreen">
+        Background="{DynamicResource OttoPage}"
+        FontFamily="{DynamicResource OttoFontUi}"
+        WindowStartupLocation="CenterScreen"
+
+        ExtendClientAreaToDecorationsHint="True"
+        WindowDecorations="None">
 
   <Window.Styles>
+    <!-- El logotipo, en Archivo expandida peso 800 como pide el diseño. El peso vive
+         en el archivo de fuente, no en FontWeight: la cara ya es ExtraBold y pedirle
+         negrita encima la sintetizaría una segunda vez. -->
+    <Style Selector="TextBlock.wordmark">
+      <Setter Property="FontFamily" Value="{DynamicResource OttoFontDisplay}" />
+      <Setter Property="FontSize" Value="26" />
+      <Setter Property="LineHeight" Value="26" />
+      <Setter Property="Foreground" Value="{DynamicResource OttoText}" />
+    </Style>
+
+    <!-- El renglón de estado. El color y el peso viven acá y no en el elemento
+         porque un valor local le gana a un setter de estilo: puesto inline, el
+         apagado del estado inactivo pisaría al de escuchando y nunca cambiaría. -->
+    <Style Selector="TextBlock.status">
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="Foreground" Value="{DynamicResource OttoTextMuted}" />
+    </Style>
+    <Style Selector="TextBlock.status.listening">
+      <Setter Property="Foreground" Value="{DynamicResource OttoStatusListening}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="TextBlock.status.working">
+      <Setter Property="Foreground" Value="{DynamicResource OttoStatusWorking}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
     <Style Selector="TextBlock.eyebrow">
       <Setter Property="FontSize" Value="11" />
       <Setter Property="LetterSpacing" Value="1" />
       <Setter Property="Opacity" Value="0.6" />
     </Style>
-    <Style Selector="Border.card">
-      <Setter Property="Background" Value="{DynamicResource ThemeBackgroundBrush}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorderMidBrush}" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="8" />
-      <Setter Property="Padding" Value="14" />
+
+    <!-- Los botones de la barra de título: 40 de ancho por los 34 de alto de la
+         barra, sin radio ni borde. Son parte del marco de la ventana, no de la
+         interfaz que vive adentro, y el marco de Windows no tiene esquinas
+         redondeadas en sus botones. -->
+    <Style Selector="Button.chrome">
+      <Setter Property="Width" Value="40" />
+      <Setter Property="Height" Value="34" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Opacity" Value="0.5" />
+    </Style>
+    <Style Selector="Button.chrome:pointerover">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Button.chrome:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource OttoBorderSoft}" />
+    </Style>
+
+    <!-- Cerrar en rojo al pasar por encima, como toda ventana de Windows. Es la
+         única de las dos que hace algo que el usuario podría no querer. -->
+    <Style Selector="Button.chrome.close:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource OttoAccent}" />
+    </Style>
+
+    <!-- El "3 NOTAS" arriba de una lista filtrada. Separado del eyebrow porque el
+         diseño los distingue: un rótulo de sección abre más las letras que un
+         recuento, que acompaña a la lista en vez de anunciarla. -->
+    <Style Selector="TextBlock.count">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="LetterSpacing" Value="0.7" />
+      <Setter Property="Foreground" Value="{DynamicResource OttoTextMuted}" />
+    </Style>
+
+    <!-- El renglón grande del vacío. Chico por defecto: una búsqueda sin
+         resultados y un atajo que no se registró son frases que se leen, y en
+         cuerpo de titular gritan algo que no da para gritar.
+
+         Sólo el "todavía no dictaste nada" sube a 22 en la cara expandida, porque
+         ese sí es un encabezado: es lo único que hay en pantalla y lo que la
+         pantalla entera está diciendo. -->
+    <Style Selector="TextBlock.empty-heading">
+      <Setter Property="FontSize" Value="15" />
+      <Setter Property="Foreground" Value="{DynamicResource OttoText}" />
+    </Style>
+    <Style Selector="TextBlock.empty-heading.invitation">
+      <Setter Property="FontFamily" Value="{DynamicResource OttoFontDisplay}" />
+      <Setter Property="FontSize" Value="22" />
+      <Setter Property="LineHeight" Value="26" />
+    </Style>
+
+    <!-- El buscador se queda con el borde de acento mientras hay algo escrito, no
+         sólo mientras tiene el foco. Una lista filtrada es idéntica a una lista
+         corta, y esta es la única marca en pantalla de que no las estás viendo
+         todas. -->
+    <Style Selector="TextBox.filtering /template/ Border#PART_BorderElement">
+      <Setter Property="BorderBrush" Value="{DynamicResource OttoAccent}" />
+    </Style>
+
+    <!-- Una nota es un renglón de una lista, no una tarjeta.
+
+         El diseño las separa con una regla de 2px y nada más: sin fondo propio,
+         sin borde alrededor, sin sombra. Una tarjeta anuncia que su contenido es
+         una unidad aparte, y treinta notas seguidas no son treinta cosas aparte
+         — son una lista, y leerla de arriba a abajo es lo único que se hace acá.
+
+         La regla es de 2px sobre el borde al 10%, que es exactamente lo que pide
+         el diseño. La probé en 1px porque me pareció que 2px de negro al 10% se
+         veía blando, y me equivoqué: es un divisor ancho y suave a propósito, y
+         en 1px la lista se endurece. -->
+    <Style Selector="Border.note">
+      <Setter Property="Padding" Value="20,14" />
+      <Setter Property="BorderBrush" Value="{DynamicResource OttoBorder}" />
+      <Setter Property="BorderThickness" Value="0,0,0,2" />
+    </Style>
+
+    <!-- La nota abierta se tiñe con el acento apenas insinuado. Es lo único que
+         distingue "estoy escribiendo acá" del resto de la lista, ahora que la
+         fila no tiene ni borde ni elevación con los que hacerlo. -->
+    <Style Selector="Border.note.editing">
+      <Setter Property="Background" Value="{DynamicResource OttoAccentWash}" />
+    </Style>
+
+    <!-- La fila elegida va más fuerte que la que se está editando, y el diseño las
+         separa a propósito: editar es algo que le pasa a una nota sola y se ve por
+         la forma del renglón, mientras que elegir es algo que le pasa a varias y
+         sólo se ve por el color. Definida después para que gane si alguna vez
+         llegaran a coincidir. -->
+    <Style Selector="Border.note.picked">
+      <Setter Property="Background" Value="{DynamicResource OttoAccentSoft}" />
+    </Style>
+
+    <!-- La casilla: un cuadrado, no un círculo ni el CheckBox de Fluent. Cuadrada
+         porque elige varias cosas, y dibujada acá porque el control del sistema
+         trae su propio tamaño, su propio radio y su propia animación, ninguno de
+         los cuales es el del diseño. -->
+    <Style Selector="Border.tick">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="VerticalAlignment" Value="Top" />
+      <Setter Property="Margin" Value="0,2,12,0" />
+      <Setter Property="Background" Value="{DynamicResource OttoSunken}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource OttoBorder}" />
+      <Setter Property="BorderThickness" Value="1.5" />
+    </Style>
+    <Style Selector="Border.tick.on">
+      <Setter Property="Background" Value="{DynamicResource OttoAccent}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource OttoAccent}" />
+    </Style>
+
+    <!-- El bloque de lectura entero es el botón que abre la edición: no hay un
+         "Editar" en el diseño, y agregarlo sería un botón por nota para algo que
+         el texto ya invita a hacer. Plano en todos sus estados salvo el sutil
+         aviso de que se puede tocar. -->
+    <Style Selector="Button.note-open">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.note-open /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.note-open:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.note-open:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+
+    <Style Selector="TextBlock.note-title">
+      <Setter Property="FontFamily" Value="{DynamicResource OttoFontDisplay}" />
+      <Setter Property="FontSize" Value="15" />
+      <Setter Property="Foreground" Value="{DynamicResource OttoText}" />
+    </Style>
+
+    <!-- "Sin título" es un relleno, no un título, y se apaga para decirlo. Va por
+         HasTitle y no por comparar el texto: alguien puede llamar así a una nota. -->
+    <Style Selector="TextBlock.note-title.untitled">
+      <Setter Property="Foreground" Value="{DynamicResource OttoTextMuted}" />
+    </Style>
+
+    <!-- Fecha, aplicación y duración en monoespaciada: son tres datos que se
+         repiten renglón a renglón, y en una fuente de ancho fijo las columnas se
+         alinean solas sin que nadie las alinee. -->
+    <Style Selector="TextBlock.note-meta">
+      <Setter Property="FontFamily" Value="{DynamicResource OttoFontMono}" />
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Foreground" Value="{DynamicResource OttoTextMuted}" />
+    </Style>
+
+    <!-- La familia va explícita: el bloque de lectura es un Button, y el estilo
+         base de Button pide la cara SemiBold. Sin esto el cuerpo de cada nota la
+         hereda y la lista entera queda en negrita — que es exactamente lo que
+         pasó la primera vez que la miré. -->
+    <Style Selector="TextBlock.note-body">
+      <Setter Property="FontFamily" Value="{DynamicResource OttoFontUi}" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="LineHeight" Value="19.5" />
+      <Setter Property="Foreground" Value="{DynamicResource OttoText}" />
     </Style>
   </Window.Styles>
 
   <DockPanel LastChildFill="True">
 
+    <!-- Barra de título propia. La del sistema venía en azul de Windows arriba de
+         una app que por lo demás es negra o gris, y era lo único en pantalla que el
+         rediseño no tocaba.
+
+         Los ElementRole no son decorativos: son lo que le dice a Avalonia cuál de
+         estos elementos es la barra y cuáles los botones, y con eso el arrastre, el
+         doble clic para maximizar y el ajuste a los bordes de la pantalla los
+         maneja el sistema. Hechos a mano con BeginMoveDrag la ventana se mueve pero
+         pierde todo lo demás. Redimensionar por los bordes tampoco cambia: el marco
+         sigue estando, lo que cambia es hasta dónde llega lo que dibujamos. -->
+    <Border DockPanel.Dock="Top" Height="34" Background="Transparent"
+            WindowDecorationProperties.ElementRole="TitleBar">
+      <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+
+        <StackPanel Orientation="Horizontal" Spacing="8" Margin="14,0,0,0"
+                    VerticalAlignment="Center" Opacity="0.6">
+          <Rectangle Width="8" Height="8" Fill="{DynamicResource OttoAccent}" />
+          <TextBlock Text="Otto" FontSize="11" VerticalAlignment="Center" />
+        </StackPanel>
+
+        <!-- Sin maximizar: el doble clic en la barra ya hace eso, y el diseño dibuja
+             dos botones y no tres. -->
+        <Button Grid.Column="2" Classes="chrome" Click="OnMinimiseClick"
+                WindowDecorationProperties.ElementRole="MinimizeButton">
+          <Path Data="M 0,0 L 10,0" Stroke="{DynamicResource OttoText}" StrokeThickness="1" />
+        </Button>
+        <Button Grid.Column="3" Classes="chrome close" Click="OnCloseClick"
+                WindowDecorationProperties.ElementRole="CloseButton">
+          <Path Data="M 0,0 L 10,10 M 10,0 L 0,10"
+                Stroke="{DynamicResource OttoText}" StrokeThickness="1" />
+        </Button>
+      </Grid>
+    </Border>
+
     <!-- Encabezado: estado siempre visible, porque es lo primero que se pregunta
-         cualquiera que abre una app que corre en segundo plano. -->
-    <Border DockPanel.Dock="Top" Padding="18,16,18,12"
-            BorderBrush="{DynamicResource ThemeBorderMidBrush}" BorderThickness="0,0,0,1">
+         cualquiera que abre una app que corre en segundo plano.
+
+         La figura de estado es la misma que dibuja el ícono de bandeja — ver
+         StateShapes. Que sea la misma en los dos lados es lo que permite leer el
+         estado sin traducir entre dos vocabularios distintos. -->
+    <Border DockPanel.Dock="Top" Padding="20,10,20,14"
+            BorderBrush="{DynamicResource OttoBorder}" BorderThickness="0,0,0,2">
       <Grid ColumnDefinitions="*,Auto">
-        <StackPanel Spacing="2">
-          <TextBlock Text="Otto" FontSize="20" FontWeight="SemiBold" />
-          <!-- Envuelve porque este renglón dejó de ser sólo "Listo · Ctrl+Alt+Espacio".
-               Cuando el atajo no se pudo registrar, acá va la explicación completa, y
-               sin esto se cortaba justo en la parte que dice qué hacer al respecto:
-               un aviso que no entra en la pantalla no avisa nada. -->
-          <TextBlock Text="{Binding StatusText}" FontSize="12" Opacity="0.7"
-                     TextWrapping="Wrap" />
+        <StackPanel Spacing="5" VerticalAlignment="Bottom">
+          <TextBlock Classes="wordmark" Text="Otto" />
+
+          <StackPanel Orientation="Horizontal" Spacing="7">
+            <views:StateGlyph Width="13" Height="13" State="{Binding State}"
+                              VerticalAlignment="Center" />
+
+            <!-- Envuelve porque este renglón dejó de ser sólo "Listo · Ctrl+Alt+Espacio".
+                 Cuando el atajo no se pudo registrar, acá va la explicación completa, y
+                 sin esto se cortaba justo en la parte que dice qué hacer al respecto:
+                 un aviso que no entra en la pantalla no avisa nada. -->
+            <TextBlock Classes="status" Text="{Binding StatusText}" TextWrapping="Wrap"
+                       Classes.listening="{Binding IsListening}"
+                       Classes.working="{Binding IsWorking}" />
+          </StackPanel>
 
           <!-- El aviso de reinicio vive acá, en el encabezado, y no adentro de la
                tarjeta de configuración: guardar cierra esa tarjeta, así que el aviso
@@ -50,20 +288,48 @@
                se apaga solo apenas Otto arranca de nuevo. No hay que bajarlo a mano,
                y no puede quedar prendido mintiendo. -->
           <TextBlock Text="El atajo nuevo se activa recién en el próximo inicio de Otto."
-                     FontSize="12" Opacity="0.7" TextWrapping="Wrap"
+                     Classes="status" TextWrapping="Wrap"
                      IsVisible="{Binding HotkeyChangePending}" />
         </StackPanel>
 
-        <Button Grid.Column="1" Content="Configuración" VerticalAlignment="Center"
+        <Button Grid.Column="1" Classes="ghost" VerticalAlignment="Bottom"
                 Command="{Binding ToggleSettingsCommand}"
-                IsVisible="{Binding !IsProvisioning}" />
+                IsVisible="{Binding !IsProvisioning}">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <!-- Dos rieles con perillas: las perillas se rellenan con el fondo para
+                 que el riel se corte al pasar por debajo, igual que en el diseño. -->
+            <Canvas Width="15" Height="15" VerticalAlignment="Center">
+              <Line StartPoint="1.5,4" EndPoint="14.5,4"
+                    Stroke="{DynamicResource OttoText}" StrokeThickness="1.6" />
+              <Line StartPoint="1.5,11" EndPoint="14.5,11"
+                    Stroke="{DynamicResource OttoText}" StrokeThickness="1.6" />
+              <Ellipse Canvas.Left="8.5" Canvas.Top="2" Width="4" Height="4"
+                       Fill="{DynamicResource OttoCard}"
+                       Stroke="{DynamicResource OttoText}" StrokeThickness="1.6" />
+              <Ellipse Canvas.Left="3.5" Canvas.Top="9" Width="4" Height="4"
+                       Fill="{DynamicResource OttoCard}"
+                       Stroke="{DynamicResource OttoText}" StrokeThickness="1.6" />
+            </Canvas>
+            <TextBlock Text="Ajustes" FontSize="13" VerticalAlignment="Center" />
+          </StackPanel>
+        </Button>
       </Grid>
     </Border>
 
-    <!-- Configuración: se despliega sobre la lista en vez de abrir otra ventana.
-         Es una app chica; una ventana más sería una ventana más que administrar. -->
-    <Border DockPanel.Dock="Top" Classes="card" Margin="18,14,18,0"
-            IsVisible="{Binding IsSettingsOpen}">
+    <!-- Cuerpo: ajustes, notas y primera descarga ocupan el mismo lugar y nunca se
+         ven juntos. Se turnan; ninguno se apila sobre otro. -->
+    <Grid>
+
+    <!-- Configuración: reemplaza a la lista en vez de desplegarse encima. Es una
+         app chica y sigue sin abrir otra ventana, pero desplegarse dejaba el
+         buscador y Seleccionar asomando abajo, y eso se leía como un panel caído
+         sobre una pantalla que seguía esperando atrás.
+
+         Dentro de un ScrollViewer porque es la pantalla más larga que tiene Otto:
+         sin él, en una ventana chica lo último que se ve es "Borrar todos mis
+         datos" cortado al medio. -->
+    <ScrollViewer IsVisible="{Binding IsSettingsOpen}">
+      <Border Classes="card" Margin="18,14,18,18">
       <StackPanel Spacing="12">
         <TextBlock Classes="eyebrow" Text="CONFIGURACIÓN" />
 
@@ -118,7 +384,7 @@
         <CheckBox Content="Avisarme si hay una versión nueva al arrancar"
                   IsChecked="{Binding CheckForUpdates}" />
 
-        <Button Content="Guardar" HorizontalAlignment="Right"
+        <Button Content="Guardar" Classes="primary" HorizontalAlignment="Right"
                 Command="{Binding SaveSettingsCommand}" />
 
         <Separator Margin="0,4" />
@@ -151,57 +417,310 @@
           </StackPanel>
         </StackPanel>
       </StackPanel>
-    </Border>
+      </Border>
+    </ScrollViewer>
 
-    <!-- Cuerpo: notas y descarga inicial ocupan el mismo lugar y nunca se ven
-         juntas — se turnan según IsProvisioning, en vez de vivir en ventanas
-         separadas que habría que administrar. -->
-    <Grid>
+      <DockPanel LastChildFill="True" IsVisible="{Binding IsShowingNotes}">
 
-      <DockPanel LastChildFill="True" IsVisible="{Binding !IsProvisioning}">
+        <!-- Búsqueda: en su propia franja, del ancho de la ventana y separada de
+             la lista por una línea. Filtrar es una acción sobre la lista entera,
+             no un elemento más adentro de ella. -->
+        <Border DockPanel.Dock="Top" Padding="20,12"
+                BorderBrush="{DynamicResource OttoBorder}" BorderThickness="0,0,0,1"
+                IsVisible="{Binding !IsSelecting}">
+          <!-- El tope de 420 vive en la columna y no en el campo. Un MaxWidth sobre
+               un control estirado lo CENTRA en el espacio que le sobra, y el
+               buscador tiene que quedar contra el margen izquierdo; una columna con
+               máximo crece hasta ahí y le deja el resto a la de al lado. -->
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*" MaxWidth="420" />
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
 
-        <!-- Búsqueda -->
-        <TextBox DockPanel.Dock="Top" Margin="18,14,18,10"
-                 PlaceholderText="Buscar en tus notas…" Text="{Binding Search}" />
+            <!-- La lupa va encima del campo, con el padding izquierdo abriéndole
+                 lugar al texto, igual que en el diseño. Sin hit-test, para que el
+                 clic caiga en el campo y no en el dibujo.
 
-        <!-- Vacío -->
-        <TextBlock DockPanel.Dock="Top" Margin="18,40,18,0"
-                   Text="{Binding EmptyMessage}" TextWrapping="Wrap" TextAlignment="Center"
-                   Opacity="0.55" IsVisible="{Binding IsEmpty}" />
+                 El margen inferior de 6 la sube 3 píxeles, y no es un número al
+                 azar: medido sobre la ventana, el campo va del renglón 120 al 151
+                 —centro 135,5— y la lupa centrada caía en 136,5, o sea justo donde
+                 corresponde. El que no está en el centro es el TEXTO, que cae en
+                 132,5, porque "Buscar en tus notas" no tiene ni una letra con cola
+                 y su tinta queda arriba del centro de su renglón.
 
-        <!-- Notas -->
-        <ScrollViewer Padding="18,0,18,18">
+                 Así que el ícono se alinea con el texto y no con la caja. Centrarlo
+                 geométricamente es lo correcto y se ve torcido; esto se ve derecho,
+                 que es para lo que está. -->
+            <Panel>
+              <TextBox PlaceholderText="Buscar en tus notas" Text="{Binding Search}"
+                       Classes.filtering="{Binding IsSearching}"
+                       Padding="32,7,11,7" />
+
+              <Viewbox Width="14" Height="14" Margin="10,0,0,6"
+                       HorizontalAlignment="Left" VerticalAlignment="Center"
+                       Opacity="0.5" IsHitTestVisible="False">
+                <Canvas Width="16" Height="16">
+                  <Ellipse Canvas.Left="2" Canvas.Top="2" Width="10" Height="10"
+                           Stroke="{DynamicResource OttoText}" StrokeThickness="1.6" />
+                  <Line StartPoint="11,11" EndPoint="15,15"
+                        Stroke="{DynamicResource OttoText}" StrokeThickness="1.6" />
+                </Canvas>
+              </Viewbox>
+            </Panel>
+
+            <Button Grid.Column="2" Content="Seleccionar" Margin="8,0,0,0" FontSize="12.5"
+                    Command="{Binding StartSelectingCommand}" />
+          </Grid>
+        </Border>
+
+        <!-- Elegir notas reemplaza al buscador en vez de sumarse abajo: mientras
+             estás eligiendo, filtrar la lista cambiaría el conjunto sobre el que
+             venís decidiendo, y "Todas" pasaría a significar otra cosa a mitad de
+             camino. -->
+        <Border DockPanel.Dock="Top" Padding="20,12"
+                BorderBrush="{DynamicResource OttoBorder}" BorderThickness="0,0,0,1"
+                IsVisible="{Binding IsSelecting}">
+          <Grid ColumnDefinitions="*,Auto,Auto">
+            <TextBlock Text="{Binding SelectionLabel}" FontSize="13" FontWeight="SemiBold"
+                       VerticalAlignment="Center" />
+            <Button Grid.Column="1" Classes="ghost" Content="Todas" FontSize="12.5"
+                    Command="{Binding SelectAllCommand}" />
+            <Button Grid.Column="2" Content="Cancelar" Margin="8,0,0,0" FontSize="12.5"
+                    Command="{Binding CancelSelectingCommand}" />
+          </Grid>
+        </Border>
+
+        <!-- Las acciones del lote van abajo, lejos del renglón que se toca para
+             elegir. El diseño las separa con una regla de 2px, el doble que la del
+             buscador: es un borde entre la lista y algo que actúa sobre ella. -->
+        <Border DockPanel.Dock="Bottom" Padding="20,12"
+                BorderBrush="{DynamicResource OttoBorder}" BorderThickness="0,2,0,0"
+                IsVisible="{Binding IsSelecting}">
+          <Grid>
+            <StackPanel Orientation="Horizontal" Spacing="8"
+                        IsVisible="{Binding !IsConfirmingDeleteSelected}">
+              <Button Content="Exportar .txt" FontSize="12.5"
+                      Command="{Binding ExportSelectedCommand}" CommandParameter="txt"
+                      IsEnabled="{Binding HasSelection}" />
+              <Button Content="Exportar .md" FontSize="12.5"
+                      Command="{Binding ExportSelectedCommand}" CommandParameter="md"
+                      IsEnabled="{Binding HasSelection}" />
+
+              <TextBlock Text="{Binding ExportError}" FontSize="12"
+                         VerticalAlignment="Center" Margin="4,0,0,0"
+                         Foreground="{DynamicResource OttoDanger}"
+                         IsVisible="{Binding ExportError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            </StackPanel>
+
+            <Button Classes="accent" FontSize="12.5" HorizontalAlignment="Right"
+                    Content="{Binding DeleteSelectedLabel}"
+                    Command="{Binding ConfirmDeleteSelectedCommand}"
+                    IsEnabled="{Binding HasSelection}"
+                    IsVisible="{Binding !IsConfirmingDeleteSelected}" />
+
+            <!-- El segundo paso reemplaza al primero en el mismo lugar: el botón
+                 que confirma no puede quedar al lado del que abrió la pregunta. -->
+            <Grid ColumnDefinitions="*,Auto,Auto"
+                  IsVisible="{Binding IsConfirmingDeleteSelected}">
+              <TextBlock Text="{Binding DeleteSelectedWarning}" FontSize="12.5"
+                         VerticalAlignment="Center" TextWrapping="Wrap"
+                         Foreground="{DynamicResource OttoDanger}" />
+              <Button Grid.Column="1" Classes="accent" FontSize="12.5" Margin="12,0,0,0"
+                      Content="Sí, borrar" Command="{Binding DeleteSelectedCommand}" />
+              <Button Grid.Column="2" Content="Cancelar" FontSize="12.5" Margin="8,0,0,0"
+                      Command="{Binding CancelDeleteSelectedCommand}" />
+            </Grid>
+          </Grid>
+        </Border>
+
+        <!-- La lista y el vacío se turnan en el mismo lugar. -->
+        <Grid>
+
+          <DockPanel LastChildFill="True" IsVisible="{Binding !IsEmpty}">
+
+            <!-- Cuántas encontró la búsqueda. Sin búsqueda no dice nada: contar
+                 las notas que tenés no es información, es ruido. -->
+            <TextBlock DockPanel.Dock="Top" Classes="count" Text="{Binding ResultCount}"
+                       Margin="20,10,20,0" IsVisible="{Binding IsSearching}" />
+
+        <!-- Notas. Sin padding en el ScrollViewer: los renglones van de borde a
+             borde y el suyo propio es el que separa el texto del filo. -->
+        <ScrollViewer>
           <ItemsControl ItemsSource="{Binding Notes}">
+
+            <!-- Un WrapPanel y no un UniformGrid: las notas tienen alturas muy
+                 distintas, y el uniforme le daría a todas la altura de la más
+                 larga. Acá cada renglón de la grilla mide lo que mide su nota más
+                 alta, que es lo que hace el grid del diseño. -->
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <WrapPanel ItemWidth="{Binding $parent[ItemsControl].Bounds.Width,
+                                       Converter={x:Static views:NoteColumns.ItemWidth}}" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:NoteViewModel">
-                <Border Classes="card" Margin="0,0,0,10">
-                  <StackPanel Spacing="8">
+                <Border Classes="note" Classes.editing="{Binding IsEditing}"
+                        Classes.picked="{Binding IsSelected}">
+                  <Grid ColumnDefinitions="Auto,*">
 
-                    <Grid ColumnDefinitions="*,Auto">
-                      <TextBox Text="{Binding Title}" PlaceholderText="{Binding Heading}"
-                               BorderThickness="0" Padding="0" FontWeight="SemiBold" />
-                      <TextBlock Grid.Column="1" Text="{Binding Subtitle}"
-                                 FontSize="11" Opacity="0.55" VerticalAlignment="Center" />
-                    </Grid>
+                    <!-- Sin modo selección la casilla no ocupa lugar: IsVisible en
+                         falso la saca de la medición, así que la columna Auto queda
+                         en cero y el texto arranca en el margen de siempre. -->
+                    <Border Grid.Column="0" Classes="tick" Classes.on="{Binding IsSelected}"
+                            IsVisible="{Binding IsSelecting}">
+                      <Path Data="M 1.5,5 L 4.5,8 L 9.5,1.5" Stroke="White" StrokeThickness="2"
+                            StrokeLineCap="Round" StrokeJoin="Round"
+                            IsVisible="{Binding IsSelected}" />
+                    </Border>
 
-                    <TextBox Text="{Binding Text}" AcceptsReturn="True" TextWrapping="Wrap"
-                             BorderThickness="0" Padding="0" MaxHeight="220" />
+                  <StackPanel Grid.Column="1">
 
-                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-                      <!-- Guardar solo aparece si hay algo que guardar: un botón que
-                           no hace nada la mayor parte del tiempo es ruido. -->
-                      <Button Content="Guardar" Command="{Binding SaveCommand}"
-                              IsVisible="{Binding IsDirty}" />
-                      <Button Content="{Binding CopyLabel}" Command="{Binding CopyCommand}" />
-                      <Button Content="Borrar" Command="{Binding DeleteCommand}" />
+                    <!-- Lectura -->
+                    <StackPanel Spacing="6" IsVisible="{Binding !IsEditing}">
+                      <Button Classes="note-open" Command="{Binding ActivateCommand}">
+                        <StackPanel Spacing="6">
+
+                          <!-- El título va en la cara expandida del diseño, sin
+                               FontWeight: la cara ya es ExtraBold y pedirle negrita
+                               encima la sintetizaría una segunda vez, igual que en
+                               el logotipo. -->
+                          <!-- El texto entra por Highlight y no por Text: lo que
+                               coincidió con la búsqueda se pinta, y eso pide dos
+                               colores dentro de un mismo TextBlock. -->
+                          <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Classes="note-title"
+                                       Classes.untitled="{Binding !HasTitle}"
+                                       TextTrimming="CharacterEllipsis"
+                                       views:Highlight.Text="{Binding Heading}"
+                                       views:Highlight.Query="{Binding Query}"
+                                       views:Highlight.Brush="{DynamicResource OttoHighlight}" />
+                            <TextBlock Grid.Column="1" Text="{Binding Subtitle}"
+                                       Classes="note-meta" Margin="10,0,0,0"
+                                       VerticalAlignment="Center" />
+                          </Grid>
+
+                          <!-- Recortada a cuatro renglones: la lista sirve para
+                               encontrar la nota, no para leerla entera. El resto
+                               aparece al abrirla. -->
+                          <TextBlock Classes="note-body"
+                                     TextWrapping="Wrap" MaxLines="4"
+                                     TextTrimming="CharacterEllipsis"
+                                     views:Highlight.Text="{Binding Text}"
+                                     views:Highlight.Query="{Binding Query}"
+                                     views:Highlight.Brush="{DynamicResource OttoHighlight}" />
+                        </StackPanel>
+                      </Button>
+
+                      <!-- Mientras se eligen notas, las acciones de una sola no
+                           existen: copiar o eliminar la fila que estás por marcar
+                           es lo contrario de lo que viniste a hacer, y el lote ya
+                           tiene su propia barra abajo. -->
+                      <StackPanel Orientation="Horizontal" Spacing="2"
+                                  IsVisible="{Binding !IsSelecting}">
+                        <Button Classes="mini quiet" Content="{Binding CopyLabel}"
+                                Command="{Binding CopyCommand}" />
+                        <Button Classes="mini quiet" Content="Eliminar"
+                                Command="{Binding DeleteCommand}" />
+                      </StackPanel>
+                    </StackPanel>
+
+                    <!-- Edición -->
+                    <StackPanel Spacing="8" IsVisible="{Binding IsEditing}">
+
+                      <!-- Escape es la salida sin guardar. El diseño no dibuja un
+                           Cancelar, y un botón para descartar al lado de uno para
+                           guardar invita al accidente que justamente no se puede
+                           deshacer. -->
+                      <StackPanel.KeyBindings>
+                        <KeyBinding Gesture="Escape" Command="{Binding CancelEditCommand}" />
+                      </StackPanel.KeyBindings>
+
+                      <TextBox Text="{Binding Title}" PlaceholderText="Sin título"
+                               FontFamily="{DynamicResource OttoFontDisplay}" FontSize="15" />
+
+                      <TextBlock Text="{Binding Subtitle}" Classes="note-meta" />
+
+                      <TextBox Text="{Binding Text}" AcceptsReturn="True" TextWrapping="Wrap"
+                               FontSize="13" LineHeight="19.5" MinHeight="140" MaxHeight="260" />
+
+                      <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto">
+                        <Button Classes="mini quiet" Content="{Binding CopyLabel}"
+                                Command="{Binding CopyCommand}" />
+                        <Button Grid.Column="1" Classes="mini quiet" Content="Eliminar"
+                                Command="{Binding DeleteCommand}" />
+
+                        <TextBlock Grid.Column="3" Text="Cambios sin guardar"
+                                   FontSize="11" Margin="0,0,8,0" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource OttoTextMuted}"
+                                   IsVisible="{Binding IsDirty}" />
+
+                        <!-- Presente pero apagado cuando no hay nada que guardar:
+                             en edición el botón es parte de la forma del renglón, y
+                             hacerlo aparecer y desaparecer movería todo lo demás
+                             mientras alguien escribe. -->
+                        <Button Grid.Column="4" Classes="mini primary" Content="Guardar"
+                                Command="{Binding SaveCommand}" IsEnabled="{Binding IsDirty}" />
+                      </Grid>
                     </StackPanel>
 
                   </StackPanel>
+                  </Grid>
                 </Border>
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
         </ScrollViewer>
+
+          </DockPanel>
+
+          <!-- Vacío: centrado en lo que queda de la ventana y alineado a la
+               izquierda, no al medio. Es una frase que se lee, no un cartel.
+
+               El botón sólo existe cuando hay una búsqueda que limpiar. Borrar el
+               campo a mano tampoco cuesta nada, pero en ese momento es lo único
+               que queda por hacer, y la pantalla bien puede decirlo. -->
+          <StackPanel IsVisible="{Binding IsEmpty}" VerticalAlignment="Center"
+                      Margin="56,0" Spacing="10">
+
+            <!-- Un vúmetro adentro de un anillo: la misma figura que el estado
+                 "escuchando", quieta. Sólo aparece cuando todavía no hay ningún
+                 dictado — una búsqueda sin resultados y un atajo que falló no son
+                 momentos para invitar a nadie a nada. -->
+            <!-- Alineado a la izquierda a mano: un Canvas de ancho fijo no puede
+                 estirarse, y sin esto el StackPanel lo centra y queda flotando
+                 arriba de un texto que arranca en el margen. -->
+            <Canvas Width="40" Height="40" Margin="0,0,0,8" HorizontalAlignment="Left"
+                    IsVisible="{Binding HasNoDictationsYet}">
+              <Ellipse Canvas.Left="5" Canvas.Top="5" Width="30" Height="30"
+                       Stroke="{DynamicResource OttoGlyphQuiet}" StrokeThickness="2.5" />
+              <Rectangle Canvas.Left="13" Canvas.Top="16" Width="3" Height="8"
+                         Fill="{DynamicResource OttoGlyphQuiet}" />
+              <Rectangle Canvas.Left="18.5" Canvas.Top="13" Width="3" Height="14"
+                         Fill="{DynamicResource OttoGlyphQuiet}" />
+              <Rectangle Canvas.Left="24" Canvas.Top="17" Width="3" Height="6"
+                         Fill="{DynamicResource OttoGlyphQuiet}" />
+            </Canvas>
+
+            <TextBlock Text="{Binding EmptyHeading}" TextWrapping="Wrap"
+                       Classes="empty-heading"
+                       Classes.invitation="{Binding HasNoDictationsYet}" />
+
+            <TextBlock Text="{Binding EmptyDetail}" TextWrapping="Wrap"
+                       FontSize="14" LineHeight="22.4"
+                       Foreground="{DynamicResource OttoTextMuted}"
+                       IsVisible="{Binding HasNoDictationsYet}" />
+
+            <Button Classes="ghost accent" Content="Limpiar la búsqueda"
+                    HorizontalAlignment="Left" Padding="0,4"
+                    Command="{Binding ClearSearchCommand}"
+                    IsVisible="{Binding IsSearching}" />
+          </StackPanel>
+
+        </Grid>
 
       </DockPanel>
 
@@ -224,7 +743,7 @@
             <TextBlock Classes="eyebrow" Text="PREPARANDO OTTO" />
             <TextBlock Text="{Binding ProvisioningError}" TextWrapping="Wrap"
                        FontSize="13" Foreground="#E5484A" />
-            <Button Content="Reintentar" HorizontalAlignment="Left"
+            <Button Content="Reintentar" Classes="primary" HorizontalAlignment="Left"
                     Command="{Binding RetryCommand}" />
           </StackPanel>
 

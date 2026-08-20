@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Media;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Otto.App;
@@ -10,6 +11,12 @@ using Otto.PostProcessing;
 using Otto.Storage;
 
 // Otto starts minimised to the tray. There is no window until you ask for one.
+//
+// Launching Otto again is one of the ways of asking. Claimed here, ahead of the
+// GPU probe and the service graph below, so a duplicate launch costs a mutex and
+// a signal rather than a second copy of everything Otto owns.
+var instance = SingleInstance.Claim();
+if (instance is null) return;
 
 var dataDir = Path.Combine(
     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Otto");
@@ -47,6 +54,7 @@ services.AddLogging(builder => builder
 
 services.AddSingleton(settingsStore);
 services.AddSingleton(settings);
+services.AddSingleton(instance);
 
 services.AddSingleton(provisioningOptions);
 services.AddSingleton<IModelSource, HuggingFaceModelSource>();
@@ -100,14 +108,34 @@ services.AddSingleton(sp => new MainViewModel(
     // built before any window exists.
     () => App.Shell?.Clipboard,
     sp.GetRequiredService<ProvisioningOptions>(),
-    sp.GetRequiredService<IHotkeyAvailability>()));
+    sp.GetRequiredService<IHotkeyAvailability>(),
+
+    // Same story as the clipboard: the save dialog is a window's, and this is the
+    // one place that has any business knowing which window.
+    () => App.Shell?.StorageProvider));
 
 App.Services = services.BuildServiceProvider();
 
 BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
 
+/// <summary>
+/// Archivo is the default family, not Inter.
+///
+/// It was <c>WithInterFont()</c>, which made Inter the font of every surface that
+/// does not name one — and Inter is the face the redesign explicitly steers away
+/// from. Setting the default here rather than on each control means a element
+/// nobody restyled still lands on the design's typeface instead of quietly
+/// reverting the whole redesign one unstyled label at a time.
+///
+/// Named by family rather than by file: the collection is the whole
+/// <c>Assets/fonts</c> folder, so the faces beside it — the expanded display cut,
+/// the mono — resolve from the same place through Theme/Tokens.axaml.
+/// </summary>
 static AppBuilder BuildAvaloniaApp() => AppBuilder
     .Configure<App>()
     .UsePlatformDetect()
-    .WithInterFont()
+    .With(new FontManagerOptions
+    {
+        DefaultFamilyName = "avares://Otto.App/Assets/fonts#Archivo",
+    })
     .LogToTrace();

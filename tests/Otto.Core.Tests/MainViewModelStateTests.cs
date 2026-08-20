@@ -99,7 +99,7 @@ public class MainViewModelStateTests
         Assert.True(view.HasHotkeyAlert);
         Assert.Contains("ya lo está usando", view.StatusText);
         Assert.Contains("Configuración", view.StatusText);
-        Assert.Equal(view.StatusText, view.EmptyMessage);
+        Assert.Equal(view.StatusText, view.EmptyHeading);
     }
 
     [Fact]
@@ -125,8 +125,8 @@ public class MainViewModelStateTests
         view.Search = "reunión";
 
         Assert.True(view.HasHotkeyAlert);
-        Assert.Contains("reunión", view.EmptyMessage);
-        Assert.DoesNotContain("No se pudo activar el atajo", view.EmptyMessage);
+        Assert.Contains("reunión", view.EmptyHeading);
+        Assert.DoesNotContain("No se pudo activar el atajo", view.EmptyHeading);
     }
 
     [Fact]
@@ -137,7 +137,52 @@ public class MainViewModelStateTests
 
         view.ShowHotkeyFailure(alreadyInUse: true);
 
-        Assert.DoesNotContain("Mantené", view.EmptyMessage);
-        Assert.Equal(view.StatusText, view.EmptyMessage);
+        // La invitación entera desaparece, no sólo el "Mantené": el detalle y el
+        // dibujo también son parte de decirle a alguien que use algo que no anda.
+        Assert.Equal(view.StatusText, view.EmptyHeading);
+        Assert.Equal("", view.EmptyDetail);
+        Assert.False(view.HasNoDictationsYet);
+    }
+
+    [Fact]
+    public void Sin_notas_y_sin_problemas_la_lista_vacia_invita_a_dictar()
+    {
+        var view = Build(BuildPipeline());
+
+        Assert.True(view.HasNoDictationsYet);
+        Assert.Equal("Todavía no dictaste nada.", view.EmptyHeading);
+        Assert.Contains("Mantené", view.EmptyDetail);
+    }
+
+    [Fact]
+    public void Las_notas_los_ajustes_y_la_descarga_se_turnan()
+    {
+        var view = Build(BuildPipeline());
+
+        Assert.True(view.IsShowingNotes);
+
+        // Ajustes es una pantalla, no un panel que se despliega encima: mientras
+        // está abierta, la lista no está atrás esperando con el buscador asomando.
+        view.IsSettingsOpen = true;
+        Assert.False(view.IsShowingNotes);
+
+        view.IsSettingsOpen = false;
+        Assert.True(view.IsShowingNotes);
+
+        view.IsProvisioning = true;
+        Assert.False(view.IsShowingNotes);
+    }
+
+    [Fact]
+    public void Con_una_busqueda_activa_no_hay_invitacion_ni_dibujo()
+    {
+        var view = Build(BuildPipeline());
+
+        view.Search = "reunión";
+
+        // El dibujo acompaña a "todavía no arrancaste", no a "no encontré nada":
+        // quien ya tiene notas y buscó una no necesita que le expliquen el producto.
+        Assert.False(view.HasNoDictationsYet);
+        Assert.Equal("", view.EmptyDetail);
     }
 }
