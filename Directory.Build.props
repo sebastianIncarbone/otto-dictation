@@ -14,7 +14,15 @@
       congelada en el 1.0.0 que .NET pone por defecto, "estás al día" es la
       respuesta para siempre.
     -->
-    <Version>0.2.0</Version>
+    <!--
+      Arranca en 1.1.0 y no hay 1.0.0, a propósito: 1.0.0 es lo que .NET pone
+      cuando esta propiedad se pierde, así que una versión real con ese número
+      sería indistinguible de no tener ninguna, y el test
+      La_version_del_ensamblado_no_es_la_de_fabrica dejaría de poder avisar.
+      Saltearla cuesta una línea de changelog; perder ese aviso cuesta un chequeo
+      de actualizaciones que miente en silencio para siempre.
+    -->
+    <Version>1.1.0</Version>
 
     <!--
       Un warning que aparece en cada build deja de leerse a los dos días, y a
