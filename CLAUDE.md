@@ -166,6 +166,23 @@ at the point of enforcement — read the surrounding comment before overriding o
   overlay would come back focus-stealing.
 - **The installer's version is read from the published binary**, never from the `-Version`
   parameter, so it cannot diverge from what the app reports about itself.
+- **Otto is a `WinExe`, so the console sink logs into nothing.** `AddSimpleConsole`
+  only produces output when someone runs Otto from a terminal, which is never how a
+  user runs it. `LogFile` is the record that survives, and `Crash.Install` /
+  `Crash.InstallUiHandler` are what put a failure into it — before this, the process
+  vanished from the tray leaving no trace at all. The UI-thread handler marks the
+  exception handled on purpose: a broken notes window is not worth ending the
+  dictation service the user actually launched, the same trade `DictationPipeline`
+  already makes.
+- **`[STAThread]` on `Program.Main` is load-bearing, and that is why the entry point
+  is a real method rather than top-level statements** — the compiler-generated `Main`
+  cannot carry attributes. Without it the process thread is MTA, `OleInitialize`
+  answers `RPC_E_CHANGED_MODE`, and every OLE-backed Avalonia surface (the clipboard,
+  the file picker) throws on first use. It cannot be corrected at runtime:
+  `TrySetApartmentState` returns false once the thread is already MTA. Otto's own
+  `ClipboardTextInjector` is unaffected because it uses the raw Win32 clipboard, which
+  has no apartment requirement — which is exactly why dictation kept working while
+  copying a note killed the app.
 - **An installer does not fix SmartScreen.** That is a signing problem, and it is unsolved
   and documented. Do not describe the installer as fixing it.
 
@@ -204,6 +221,7 @@ at the point of enforcement — read the surrounding comment before overriding o
 | Settings | `%APPDATA%\Otto\config.json` |
 | Notes database | `%LOCALAPPDATA%\Otto\otto.db` (WAL) |
 | Models | `%LOCALAPPDATA%\Otto\models\` |
+| Log | `%LOCALAPPDATA%\Otto\logs\otto.log` (plus one rotated `otto.log.1`) |
 | Autostart | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `Otto` |
 | Add/Remove Programs | `HKCU\...\Uninstall\{08FD4B32-9406-4142-A528-1E908B2A4A09}_is1` |
 
