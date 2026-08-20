@@ -166,6 +166,15 @@ at the point of enforcement — read the surrounding comment before overriding o
   overlay would come back focus-stealing.
 - **The installer's version is read from the published binary**, never from the `-Version`
   parameter, so it cannot diverge from what the app reports about itself.
+- **`[STAThread]` on `Program.Main` is load-bearing, and that is why the entry point
+  is a real method rather than top-level statements** — the compiler-generated `Main`
+  cannot carry attributes. Without it the process thread is MTA, `OleInitialize`
+  answers `RPC_E_CHANGED_MODE`, and every OLE-backed Avalonia surface (the clipboard,
+  the file picker) throws on first use. It cannot be corrected at runtime:
+  `TrySetApartmentState` returns false once the thread is already MTA. Otto's own
+  `ClipboardTextInjector` is unaffected because it uses the raw Win32 clipboard, which
+  has no apartment requirement — which is exactly why dictation kept working while
+  copying a note killed the app.
 - **An installer does not fix SmartScreen.** That is a signing problem, and it is unsolved
   and documented. Do not describe the installer as fixing it.
 
