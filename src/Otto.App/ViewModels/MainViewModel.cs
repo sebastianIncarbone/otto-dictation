@@ -80,6 +80,24 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private string search = "";
     [ObservableProperty] private bool isSettingsOpen;
 
+    /// <summary>
+    /// Whether the notes are the thing on screen right now.
+    ///
+    /// <para>
+    /// The three things the body can be — the notes, the settings, the first
+    /// download — are alternatives, not layers. Settings used to unfold above the
+    /// list and leave the search field and Seleccionar peeking out underneath,
+    /// which read as a panel that had dropped open over a screen still waiting
+    /// behind it. It is a screen of its own, so it takes the whole space.
+    /// </para>
+    /// <para>
+    /// Expressed here rather than as two conditions in the view because XAML has no
+    /// "and": the alternative is a second copy of this rule written in a binding,
+    /// where nothing can check it.
+    /// </para>
+    /// </summary>
+    public bool IsShowingNotes => !IsProvisioning && !IsSettingsOpen;
+
     [ObservableProperty] private string language;
     [ObservableProperty] private bool startWithWindows;
     [ObservableProperty] private bool showCharacter;
@@ -618,6 +636,8 @@ public sealed partial class MainViewModel : ObservableObject
     partial void OnIsSettingsOpenChanged(bool value)
     {
         if (!value) CancelHotkeyCapture();
+
+        OnPropertyChanged(nameof(IsShowingNotes));
     }
 
     /// <summary>The binding being edited — a pure function of <see cref="Captured"/>, never typed independently.</summary>
@@ -907,6 +927,9 @@ public sealed partial class MainViewModel : ObservableObject
     /// somewhere to live; only <see cref="ProvisioningState.Ready"/> turns it off.
     /// </summary>
     [ObservableProperty] private bool isProvisioning;
+
+    /// <inheritdoc cref="IsShowingNotes"/>
+    partial void OnIsProvisioningChanged(bool value) => OnPropertyChanged(nameof(IsShowingNotes));
 
     [ObservableProperty] private string provisioningText = "";
     [ObservableProperty] private string provisioningDetail = "";

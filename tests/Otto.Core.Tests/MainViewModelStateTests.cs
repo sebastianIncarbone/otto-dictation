@@ -155,6 +155,25 @@ public class MainViewModelStateTests
     }
 
     [Fact]
+    public void Las_notas_los_ajustes_y_la_descarga_se_turnan()
+    {
+        var view = Build(BuildPipeline());
+
+        Assert.True(view.IsShowingNotes);
+
+        // Ajustes es una pantalla, no un panel que se despliega encima: mientras
+        // está abierta, la lista no está atrás esperando con el buscador asomando.
+        view.IsSettingsOpen = true;
+        Assert.False(view.IsShowingNotes);
+
+        view.IsSettingsOpen = false;
+        Assert.True(view.IsShowingNotes);
+
+        view.IsProvisioning = true;
+        Assert.False(view.IsShowingNotes);
+    }
+
+    [Fact]
     public void Con_una_busqueda_activa_no_hay_invitacion_ni_dibujo()
     {
         var view = Build(BuildPipeline());

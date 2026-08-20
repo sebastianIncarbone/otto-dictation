@@ -316,10 +316,20 @@
       </Grid>
     </Border>
 
-    <!-- Configuración: se despliega sobre la lista en vez de abrir otra ventana.
-         Es una app chica; una ventana más sería una ventana más que administrar. -->
-    <Border DockPanel.Dock="Top" Classes="card" Margin="18,14,18,0"
-            IsVisible="{Binding IsSettingsOpen}">
+    <!-- Cuerpo: ajustes, notas y primera descarga ocupan el mismo lugar y nunca se
+         ven juntos. Se turnan; ninguno se apila sobre otro. -->
+    <Grid>
+
+    <!-- Configuración: reemplaza a la lista en vez de desplegarse encima. Es una
+         app chica y sigue sin abrir otra ventana, pero desplegarse dejaba el
+         buscador y Seleccionar asomando abajo, y eso se leía como un panel caído
+         sobre una pantalla que seguía esperando atrás.
+
+         Dentro de un ScrollViewer porque es la pantalla más larga que tiene Otto:
+         sin él, en una ventana chica lo último que se ve es "Borrar todos mis
+         datos" cortado al medio. -->
+    <ScrollViewer IsVisible="{Binding IsSettingsOpen}">
+      <Border Classes="card" Margin="18,14,18,18">
       <StackPanel Spacing="12">
         <TextBlock Classes="eyebrow" Text="CONFIGURACIÓN" />
 
@@ -407,14 +417,10 @@
           </StackPanel>
         </StackPanel>
       </StackPanel>
-    </Border>
+      </Border>
+    </ScrollViewer>
 
-    <!-- Cuerpo: notas y descarga inicial ocupan el mismo lugar y nunca se ven
-         juntas — se turnan según IsProvisioning, en vez de vivir en ventanas
-         separadas que habría que administrar. -->
-    <Grid>
-
-      <DockPanel LastChildFill="True" IsVisible="{Binding !IsProvisioning}">
+      <DockPanel LastChildFill="True" IsVisible="{Binding IsShowingNotes}">
 
         <!-- Búsqueda: en su propia franja, del ancho de la ventana y separada de
              la lista por una línea. Filtrar es una acción sobre la lista entera,
@@ -433,17 +439,36 @@
               <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <TextBox PlaceholderText="Buscar en tus notas" Text="{Binding Search}"
-                     Classes.filtering="{Binding IsSearching}">
-              <TextBox.InnerLeftContent>
-                <Canvas Width="16" Height="16" Margin="10,0,0,0" Opacity="0.5">
+            <!-- La lupa va encima del campo, con el padding izquierdo abriéndole
+                 lugar al texto, igual que en el diseño. Sin hit-test, para que el
+                 clic caiga en el campo y no en el dibujo.
+
+                 El margen inferior de 6 la sube 3 píxeles, y no es un número al
+                 azar: medido sobre la ventana, el campo va del renglón 120 al 151
+                 —centro 135,5— y la lupa centrada caía en 136,5, o sea justo donde
+                 corresponde. El que no está en el centro es el TEXTO, que cae en
+                 132,5, porque "Buscar en tus notas" no tiene ni una letra con cola
+                 y su tinta queda arriba del centro de su renglón.
+
+                 Así que el ícono se alinea con el texto y no con la caja. Centrarlo
+                 geométricamente es lo correcto y se ve torcido; esto se ve derecho,
+                 que es para lo que está. -->
+            <Panel>
+              <TextBox PlaceholderText="Buscar en tus notas" Text="{Binding Search}"
+                       Classes.filtering="{Binding IsSearching}"
+                       Padding="32,7,11,7" />
+
+              <Viewbox Width="14" Height="14" Margin="10,0,0,6"
+                       HorizontalAlignment="Left" VerticalAlignment="Center"
+                       Opacity="0.5" IsHitTestVisible="False">
+                <Canvas Width="16" Height="16">
                   <Ellipse Canvas.Left="2" Canvas.Top="2" Width="10" Height="10"
                            Stroke="{DynamicResource OttoText}" StrokeThickness="1.6" />
                   <Line StartPoint="11,11" EndPoint="15,15"
                         Stroke="{DynamicResource OttoText}" StrokeThickness="1.6" />
                 </Canvas>
-              </TextBox.InnerLeftContent>
-            </TextBox>
+              </Viewbox>
+            </Panel>
 
             <Button Grid.Column="2" Content="Seleccionar" Margin="8,0,0,0" FontSize="12.5"
                     Command="{Binding StartSelectingCommand}" />
