@@ -5,6 +5,17 @@ using Otto.Core;
 
 namespace Otto.PostProcessing;
 
+/// <summary>
+/// Shared by both correctors during the migration from Ollama to LLamaSharp.
+///
+/// <see cref="Endpoint"/>, <see cref="Model"/> and <see cref="KeepAlive"/> belong to
+/// <see cref="OllamaPostProcessor"/> only and are deleted together with it — they
+/// cannot be dropped ahead of that without breaking this file, which is still wired
+/// into <c>Program.cs</c> until that same change. <see cref="ModelPath"/>,
+/// <see cref="ContextSize"/> and <see cref="MaxTokens"/> belong to
+/// <see cref="LlamaPostProcessor"/> only. <see cref="Timeout"/> and
+/// <see cref="ProbeTimeout"/> mean the same thing for both and are not duplicated.
+/// </summary>
 public sealed record PostProcessingOptions
 {
     public string Endpoint { get; init; } = "http://localhost:11434";
@@ -17,10 +28,11 @@ public sealed record PostProcessingOptions
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(2);
 
     /// <summary>
-    /// Separate from <see cref="Timeout"/>. The probe runs once at startup, where a
-    /// couple of extra seconds cost nothing; the correction runs while someone
-    /// waits for their own words. Reusing the hot-path budget here made Otto
-    /// declare a perfectly healthy Ollama unavailable.
+    /// Separate from <see cref="Timeout"/>. The probe/load runs once at startup,
+    /// where a couple of extra seconds cost nothing; the correction runs while
+    /// someone waits for their own words. Reusing the hot-path budget here made
+    /// Otto declare a perfectly healthy engine unavailable before it finished
+    /// loading.
     /// </summary>
     public TimeSpan ProbeTimeout { get; init; } = TimeSpan.FromSeconds(60);
 
@@ -31,6 +43,23 @@ public sealed record PostProcessingOptions
     /// budget.
     /// </summary>
     public string KeepAlive { get; init; } = "2h";
+
+    /// <summary>Absolute path to the correction GGUF on disk.</summary>
+    public string ModelPath { get; init; } = "";
+
+    /// <summary>
+    /// <see cref="VoseoPrompt"/>'s system message plus its few-shot examples costs
+    /// ~700 tokens fixed; a 512-token output cap plus a 1,024-token dictation
+    /// allowance rounds up to 2,236, with margin. Qwen2.5-3B's GQA KV cache costs
+    /// ~36 KB/token, so 4096 (~147 MB) instead of the model's native 32k
+    /// (~1.2 GB) is a deliberate tradeoff. <see cref="LlamaPostProcessor"/> returns
+    /// the raw text instead of relying on llama.cpp to truncate or throw when a
+    /// dictation would not fit inside the 1,024-token allowance.
+    /// </summary>
+    public int ContextSize { get; init; } = 4096;
+
+    /// <summary>Hard cap on generated tokens per correction.</summary>
+    public int MaxTokens { get; init; } = 512;
 }
 
 /// <summary>
