@@ -18,6 +18,7 @@ public partial class App : Application
     private MainWindow? window;
     private CharacterWindow? character;
     private NativeMenuItem? characterItem;
+    private NativeMenuItem? ollamaItem;
 
     /// <summary>
     /// Which overlay to build. Held here rather than read from
@@ -270,6 +271,20 @@ public partial class App : Application
         characterItem = new NativeMenuItem();
         characterItem.Click += (_, _) => SetCharacterVisible(!CharacterVisible);
 
+        var bringCharacterToFront = new NativeMenuItem("Traer al frente");
+        bringCharacterToFront.Click += (_, _) => BringCharacterToFront();
+
+        // Re-probes on click regardless of the current state: cheap when Ollama is
+        // already up, and the only way to recover without restarting Otto when it
+        // was opened after Otto's own startup probe already ran and failed.
+        var postProcessor = services.GetRequiredService<IPostProcessor>();
+        ollamaItem = new NativeMenuItem();
+        ollamaItem.Click += async (_, _) =>
+        {
+            await postProcessor.ProbeAsync();
+            RefreshOllamaItem(postProcessor);
+        };
+
         var quit = new NativeMenuItem("Salir");
         quit.Click += (_, _) =>
         {
@@ -283,8 +298,35 @@ public partial class App : Application
         };
 
         RefreshCharacterItem();
+        RefreshOllamaItem(postProcessor);
 
-        return [open, characterItem, new NativeMenuItemSeparator(), quit];
+        return [open, characterItem, bringCharacterToFront, ollamaItem, new NativeMenuItemSeparator(), quit];
+    }
+
+    /// <summary>
+    /// Re-promotes the character overlay to the top of the "always on top" band.
+    ///
+    /// <c>Topmost</c> does not mean forever-above-every-other-topmost-window —
+    /// Windows re-orders topmost windows among themselves as they are shown or
+    /// promoted, so another app that goes topmost after the overlay opened (a call
+    /// widget, a screen recorder, Task Manager's "always on top") can end up drawn
+    /// above it. Toggling the property off and back on forces a fresh promotion.
+    ///
+    /// <see cref="Window.Activate"/> is not an option here the way it is for
+    /// <see cref="ShowWindow"/>: the overlay must never take focus
+    /// (<c>ShowActivated="False"</c> in CharacterWindow.axaml, and the click-through
+    /// style <see cref="CharacterWindow.OnOpened"/> applies) — stealing focus right
+    /// before an injection would send the dictation into Otto instead of the user's
+    /// document. And this must never be what turns the character back on: a no-op
+    /// when it is not currently shown, same as it staying hidden after "Esconder a
+    /// Otto" until the user asks for it again.
+    /// </summary>
+    private void BringCharacterToFront()
+    {
+        if (character is not { IsVisible: true }) return;
+
+        character.Topmost = false;
+        character.Topmost = true;
     }
 
     private void ShowWindow()
@@ -451,6 +493,22 @@ public partial class App : Application
     }
 
     /// <summary>
+    /// Posted rather than set directly: called both from the click handler (already
+    /// on the UI thread) and from <see cref="StartPipelineAsync"/> right after the
+    /// startup probe, whose await chain is not guaranteed to resume there — the same
+    /// caution <see cref="BuildTray"/> takes with <c>StateChanged</c>.
+    /// </summary>
+    private void RefreshOllamaItem(IPostProcessor postProcessor) =>
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            if (ollamaItem is null) return;
+
+            ollamaItem.Header = postProcessor.IsAvailable
+                ? "Ollama: conectado ✓"
+                : "Ollama: no conectado — reconectar";
+        });
+
+    /// <summary>
     /// Awaited now, not fired-and-forgotten: a registration failure has to reach
     /// <see cref="ProvisionThenStartAsync"/>'s try/catch, and a discarded Task would
     /// have taken the exception down with it instead.
@@ -463,5 +521,9 @@ public partial class App : Application
         Autostart.RepairIfMoved();
 
         await pipeline.StartAsync(settings.ToBinding());
+
+        // StartAsync just ran the one-shot startup probe; the menu item was built
+        // before it, so it still shows whatever IsAvailable defaulted to.
+        RefreshOllamaItem(services.GetRequiredService<IPostProcessor>());
     }
 }
