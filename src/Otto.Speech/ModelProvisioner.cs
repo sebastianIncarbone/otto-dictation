@@ -14,8 +14,18 @@ public sealed class ModelProvisioner(ProvisioningOptions options, IModelSource s
     /// <summary>
     /// Files, not <c>Settings.IsFirstRun</c>: deleting the models directory has to
     /// reproduce the download, and that user is not on a first run.
+    ///
+    /// The correction leg counts too, gated the same way <see cref="ProvisionAsync"/>
+    /// gates its own third leg (<see cref="ProvisioningOptions.HasGpu"/> and a
+    /// configured <see cref="ProvisioningOptions.CorrectionFileName"/>). Without this,
+    /// an Ollama-era install that already has Whisper+VAD on disk would never trip
+    /// provisioning for the GGUF at all — this file-existence check is the entire
+    /// migration-detection mechanism for that population, so it has to know about
+    /// every leg <see cref="ProvisionAsync"/> can actually download.
     /// </summary>
-    public bool NeedsProvisioning => !File.Exists(options.SpeechPath) || !File.Exists(options.VadPath);
+    public bool NeedsProvisioning =>
+        !File.Exists(options.SpeechPath) || !File.Exists(options.VadPath)
+        || (options.HasGpu && options.CorrectionFileName is not null && !File.Exists(options.CorrectionPath));
 
     // The DictationPipeline.busy pattern: two concurrent legs would open the same
     // .part file with FileShare.None and throw, so the second caller is turned away
@@ -48,6 +58,39 @@ public sealed class ModelProvisioner(ProvisioningOptions options, IModelSource s
             {
                 progress?.Report(new ProvisioningStatus(ProvisioningState.PreparingVad));
                 await source.FetchVadAsync(options.VadPath, cancellationToken);
+            }
+
+            // Third leg, last, and non-fatal: correction is a nice-to-have on top
+            // of a working dictation pipeline, not a requirement for one. A failed
+            // ~2 GB GGUF download must not cost the user Whisper+VAD, which is why
+            // this has its own try/catch instead of falling into the one below —
+            // and it never runs at all without GPU acceleration, for the same
+            // reason HardwareProbe already steers CPU-only machines away from
+            // large-v3-turbo: a 3B model on CPU can never land inside the 2s
+            // dictation budget, so downloading it there would only cost bandwidth
+            // for a feature that can never work.
+            if (options.HasGpu && options.CorrectionPath is { } correctionPath && options.CorrectionUrl is { } correctionUrl
+                && !File.Exists(correctionPath))
+            {
+                try
+                {
+                    progress?.Report(new ProvisioningStatus(ProvisioningState.DownloadingCorrection));
+
+                    var correctionProgress = progress is null ? null : new CorrectionProgressAdapter(progress);
+                    await source.FetchAsync(correctionUrl, correctionPath, correctionProgress, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    // Our own token: let this propagate to the same "user quit,
+                    // not a failure" handling as the speech/VAD legs below, rather
+                    // than swallowing it here and reporting Ready for a
+                    // provisioning run that was actually asked to stop.
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    log.LogWarning(ex, "No se pudo descargar el modelo de corrección; el dictado sigue funcionando sin ella");
+                }
             }
 
             if (!File.Exists(options.SpeechPath) || !File.Exists(options.VadPath))
@@ -101,5 +144,12 @@ public sealed class ModelProvisioner(ProvisioningOptions options, IModelSource s
     {
         public void Report(DownloadProgress value) =>
             progress.Report(new ProvisioningStatus(ProvisioningState.DownloadingSpeech, value));
+    }
+
+    /// <inheritdoc cref="SpeechProgressAdapter"/>
+    private sealed class CorrectionProgressAdapter(IProgress<ProvisioningStatus> progress) : IProgress<DownloadProgress>
+    {
+        public void Report(DownloadProgress value) =>
+            progress.Report(new ProvisioningStatus(ProvisioningState.DownloadingCorrection, value));
     }
 }

@@ -24,8 +24,6 @@ public sealed record DownloadProgress(long Downloaded, long Total, double BytesP
 /// </summary>
 public sealed class ModelDownloader : IDisposable
 {
-    private const string BaseUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/";
-
     private readonly HttpClient http;
     private readonly ILogger<ModelDownloader> log;
 
@@ -41,8 +39,17 @@ public sealed class ModelDownloader : IDisposable
         };
     }
 
+    /// <summary>
+    /// <paramref name="url"/> is the absolute address to fetch — no base URL is
+    /// assumed here, so this same method resumes the Whisper model from
+    /// whisper.cpp's Hugging Face repo and the correction GGUF from a completely
+    /// different one. Composing the URL from a repo + file name is each
+    /// <see cref="IModelSource"/> implementation's job, not this class's: a
+    /// downloader that survives a dropped connection has nothing to do with which
+    /// host the bytes come from.
+    /// </summary>
     public async Task DownloadAsync(
-        string fileName,
+        string url,
         string destination,
         IProgress<DownloadProgress>? progress = null,
         CancellationToken cancellationToken = default)
@@ -55,11 +62,12 @@ public sealed class ModelDownloader : IDisposable
         // load time, with nothing pointing back at the download.
         var partial = destination + ".part";
         var already = File.Exists(partial) ? new FileInfo(partial).Length : 0;
+        var fileName = Path.GetFileName(destination);
 
         if (already > 0)
             log.LogInformation("Resuming download of {File} from {Mb:N0} MB", fileName, already / 1024d / 1024);
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, BaseUrl + fileName);
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
         if (already > 0) request.Headers.Range = new RangeHeaderValue(already, null);
 
         using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);

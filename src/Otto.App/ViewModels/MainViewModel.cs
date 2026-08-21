@@ -980,6 +980,21 @@ public sealed partial class MainViewModel : ObservableObject
                 ProvisioningPercent = 0;
                 break;
 
+            case ProvisioningState.DownloadingCorrection:
+                // Unlike the speech leg's copy, this must never say "solo la
+                // primera vez": an upgrading Ollama-era user already has Whisper
+                // installed and is not on a first run — the missing GGUF is the
+                // whole reason this leg fires for them.
+                IsProvisioning = true;
+                HasProvisioningError = false;
+                ProvisioningText = $"Descargando {provisioningOptions.CorrectionLabel} ({provisioningOptions.CorrectionSize})…";
+
+                ProvisioningDetail = status.Progress is { } cp
+                    ? $"{cp.Fraction:P0} · {cp.BytesPerSecond / 1024 / 1024:N1} MB/s"
+                    : "Si se corta, la próxima vez continúa desde donde quedó.";
+                ProvisioningPercent = status.Progress?.Fraction ?? 0;
+                break;
+
             case ProvisioningState.Failed:
                 IsProvisioning = true;
                 HasProvisioningError = true;

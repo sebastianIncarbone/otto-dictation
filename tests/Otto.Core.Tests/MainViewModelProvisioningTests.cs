@@ -46,6 +46,8 @@ public class MainViewModelProvisioningTests
                 VadFileName = "",
                 Label = "large-v3-turbo",
                 Size = "~1,6 GB",
+                CorrectionLabel = "qwen2.5-3b-instruct",
+                CorrectionSize = "~2 GB",
             },
             availability);
     }
@@ -122,6 +124,38 @@ public class MainViewModelProvisioningTests
 
         Assert.False(view.IsProvisioning);
         Assert.False(view.HasProvisioningError);
+    }
+
+    [Fact]
+    public void Descargando_la_correccion_sin_progreso_muestra_el_mensaje_de_tranquilidad_sin_decir_primera_vez()
+    {
+        // An upgrading user (already past their first run) can hit this leg, so
+        // the copy must never claim it only happens once — unlike the speech
+        // leg's text, which is only ever seen on a genuine first run.
+        var view = Build();
+
+        view.Apply(new ProvisioningStatus(ProvisioningState.DownloadingCorrection));
+
+        Assert.True(view.IsProvisioning);
+        Assert.False(view.HasProvisioningError);
+        Assert.Contains("qwen2.5-3b-instruct", view.ProvisioningText);
+        Assert.Contains("~2 GB", view.ProvisioningText);
+        Assert.DoesNotContain("primera vez", view.ProvisioningText);
+        Assert.Equal("Si se corta, la próxima vez continúa desde donde quedó.", view.ProvisioningDetail);
+        Assert.Equal(0, view.ProvisioningPercent);
+    }
+
+    [Fact]
+    public void Descargando_la_correccion_con_progreso_formatea_porcentaje_y_velocidad()
+    {
+        var view = Build();
+
+        view.Apply(new ProvisioningStatus(
+            ProvisioningState.DownloadingCorrection,
+            new DownloadProgress(25, 100, 4 * 1024 * 1024)));
+
+        Assert.Equal($"{0.25:P0} · {4.0:N1} MB/s", view.ProvisioningDetail);
+        Assert.Equal(0.25, view.ProvisioningPercent);
     }
 
     [Fact]

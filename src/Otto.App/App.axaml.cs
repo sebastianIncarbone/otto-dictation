@@ -145,6 +145,12 @@ public partial class App : Application
                 tray.ToolTipText = "Otto — preparando el detector de voz";
                 break;
 
+            case ProvisioningState.DownloadingCorrection:
+                tray.ToolTipText = status.Progress is { } cp
+                    ? $"Otto — descargando corrección {cp.Fraction:P0}"
+                    : "Otto — descargando el modelo de corrección";
+                break;
+
             case ProvisioningState.Failed:
                 tray.ToolTipText = "Otto — no se pudo descargar el modelo";
                 break;
