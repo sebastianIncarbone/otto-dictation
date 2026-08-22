@@ -338,9 +338,10 @@ public class CharacterAppearanceTests
     }
 
     /// <summary>
-    /// Amended, never rebuilt. The window does not show the model names, so a fresh
-    /// record would reset them — the bug that quietly reset the hotkey binding on
-    /// every save and stayed invisible only because the default matched.
+    /// Amended, never rebuilt. The window does not show the model name or the
+    /// correction toggle, so a fresh record would reset them — the bug that
+    /// quietly reset the hotkey binding on every save and stayed invisible only
+    /// because the default matched.
     /// </summary>
     [Fact]
     public void Elegir_el_punto_minimo_no_pisa_el_resto_de_los_ajustes()
@@ -348,10 +349,10 @@ public class CharacterAppearanceTests
         var view = Build();
         view.IsMinimalAppearance = true;
 
-        var applied = view.ApplyTo(new Settings { PostProcessingModel = "qwen2.5:7b", Model = "base" });
+        var applied = view.ApplyTo(new Settings { CorrectVoseo = false, Model = "base" });
 
         Assert.Equal(CharacterAppearance.Minimal, applied.CharacterAppearance);
-        Assert.Equal("qwen2.5:7b", applied.PostProcessingModel);
+        Assert.False(applied.CorrectVoseo);
         Assert.Equal("base", applied.Model);
     }
 

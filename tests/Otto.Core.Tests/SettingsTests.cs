@@ -58,7 +58,7 @@ public class SettingsTests
             Modifiers = HotkeyModifiers.Shift | HotkeyModifiers.Windows,
             VirtualKey = 0x41,
             Model = "medium",
-            PostProcessingModel = "llama3.2:1b",
+            CorrectVoseo = false,
         };
 
         var saved = Build(stored).ApplyTo(stored);
@@ -66,7 +66,7 @@ public class SettingsTests
         Assert.Equal(stored.Modifiers, saved.Modifiers);
         Assert.Equal(stored.VirtualKey, saved.VirtualKey);
         Assert.Equal("medium", saved.Model);
-        Assert.Equal("llama3.2:1b", saved.PostProcessingModel);
+        Assert.False(saved.CorrectVoseo);
     }
 
     [Fact]
@@ -129,6 +129,46 @@ public class SettingsTests
         Assert.Equal(captured.Modifiers, saved.Modifiers);
         Assert.Equal(captured.VirtualKey, saved.VirtualKey);
         Assert.Equal(HotkeyLabels.For(captured), saved.HotkeyLabel);
+    }
+
+    [Fact]
+    public void Un_config_json_viejo_con_PostProcessingModel_sigue_deserializando_y_el_campo_desaparece_al_guardar()
+    {
+        // PostProcessingModel was an Ollama tag string ("qwen2.5:3b") with no
+        // local meaning once correction moved in-process, and was deleted from
+        // Settings. System.Text.Json ignores unknown members by default, so a
+        // config.json written by an older Otto still has to load — refusing to
+        // start on an upgrade would be exactly the kind of silent breakage the
+        // "amended, never rebuilt" convention exists to prevent — and the field
+        // has to actually disappear the next time Otto writes the file, since
+        // Settings no longer has anywhere to put a value for it.
+        var path = Path.Combine(Path.GetTempPath(), $"otto-settings-viejo-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, """
+            {
+              "Language": "es",
+              "Model": "large-v3-turbo",
+              "CorrectVoseo": true,
+              "PostProcessingModel": "qwen2.5:3b"
+            }
+            """);
+
+        try
+        {
+            var store = new SettingsStore(path);
+            var loaded = store.Load();
+
+            Assert.Equal("es", loaded.Language);
+            Assert.Equal("large-v3-turbo", loaded.Model);
+            Assert.True(loaded.CorrectVoseo);
+
+            store.Save(loaded);
+
+            Assert.DoesNotContain("PostProcessingModel", File.ReadAllText(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]

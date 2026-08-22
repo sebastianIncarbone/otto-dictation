@@ -73,7 +73,8 @@ public partial class App : Application
             services.GetRequiredService<SingleInstance>().Activated += () =>
                 Avalonia.Threading.Dispatcher.UIThread.Post(ShowWindow);
 
-            var needsProvisioning = services.GetRequiredService<ModelProvisioner>().NeedsProvisioning;
+            var provisioner = services.GetRequiredService<ModelProvisioner>();
+            var needsProvisioning = provisioner.NeedsProvisioning;
 
             // Progress<T> captures the ambient SynchronizationContext at
             // construction, not at the point it starts reporting — and this method
@@ -100,7 +101,15 @@ public partial class App : Application
             if (needsProvisioning)
             {
                 var view = services.GetRequiredService<MainViewModel>();
-                view.Apply(new ProvisioningStatus(ProvisioningState.DownloadingSpeech));
+
+                // The leg InitialProvisioningState reports, not always
+                // DownloadingSpeech: an Ollama-era upgrade already has Whisper+VAD
+                // on disk and starts on the correction leg instead, whose copy
+                // must not claim "solo la primera vez" to someone who is not on a
+                // first run. Seeding the wrong leg here would flash that wrong
+                // copy for the one report cycle before ProvisionAsync's own first
+                // Report() call corrects it.
+                view.Apply(new ProvisioningStatus(provisioner.InitialProvisioningState));
 
                 provisioningProgress = new Progress<ProvisioningStatus>(status =>
                 {
@@ -290,6 +299,18 @@ public partial class App : Application
             await postProcessor.ProbeAsync();
             RefreshOllamaItem(postProcessor);
         };
+
+        // Phase 3 made the startup probe fire-and-forget (StartAsync no
+        // longer awaits it), so RefreshOllamaItem's call right after
+        // StartPipelineAsync's await usually still shows the pre-load
+        // default. CorrectionAvailabilityChanged is what DictationPipeline
+        // fires once that deferred load actually settles — without this
+        // subscription nothing in Otto.App ever listened for it, so the
+        // item read "no conectado" forever on essentially every normal GPU
+        // + CorrectVoseo=true launch, self-correcting only if the user
+        // happened to click the retry item themselves.
+        var pipeline = services.GetRequiredService<DictationPipeline>();
+        pipeline.CorrectionAvailabilityChanged += () => RefreshOllamaItem(postProcessor);
 
         var quit = new NativeMenuItem("Salir");
         quit.Click += (_, _) =>
@@ -499,9 +520,11 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Posted rather than set directly: called both from the click handler (already
-    /// on the UI thread) and from <see cref="StartPipelineAsync"/> right after the
-    /// startup probe, whose await chain is not guaranteed to resume there — the same
+    /// Posted rather than set directly: called from the click handler (already on
+    /// the UI thread), from <see cref="StartPipelineAsync"/> right after
+    /// <c>StartAsync</c> returns, and from <see cref="DictationPipeline.CorrectionAvailabilityChanged"/>
+    /// once the deferred correction-model load it kicked off actually settles — none
+    /// of those callers are guaranteed to already be on the UI thread, the same
     /// caution <see cref="BuildTray"/> takes with <c>StateChanged</c>.
     /// </summary>
     private void RefreshOllamaItem(IPostProcessor postProcessor) =>
@@ -528,8 +551,13 @@ public partial class App : Application
 
         await pipeline.StartAsync(settings.ToBinding());
 
-        // StartAsync just ran the one-shot startup probe; the menu item was built
-        // before it, so it still shows whatever IsAvailable defaulted to.
+        // StartAsync only awaits the hotkey registration — the correction
+        // model's own load runs deferred, in the background, and has
+        // usually NOT settled by the time this line runs. This call still
+        // reflects whatever IsAvailable currently is (normally still false
+        // here), which is fine: the CorrectionAvailabilityChanged
+        // subscription set up in BuildMenu is what refreshes the item again
+        // once the deferred load actually finishes.
         RefreshOllamaItem(services.GetRequiredService<IPostProcessor>());
     }
 }
