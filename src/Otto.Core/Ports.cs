@@ -143,9 +143,16 @@ public interface IPromptProvider
 /// </summary>
 public interface IPostProcessor
 {
-    /// <summary>True once the backing service has been found. Checked at startup.</summary>
+    /// <summary>True once the correction model has loaded and warmed up. Checked at startup.</summary>
     bool IsAvailable { get; }
 
+    /// <summary>
+    /// Idempotent ensure-loaded, not a connectivity probe: an implementation loads
+    /// (and warms up) the correction model at most once, and this is safe to call
+    /// concurrently — races are serialized rather than each paying for their own
+    /// load. Called once at startup; an implementation MAY also expose it to a
+    /// user-triggered retry after a failed load.
+    /// </summary>
     Task<bool> ProbeAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Returns the corrected text, or the original whenever anything goes wrong.</summary>
