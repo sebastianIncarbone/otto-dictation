@@ -22,7 +22,7 @@
       Saltearla cuesta una línea de changelog; perder ese aviso cuesta un chequeo
       de actualizaciones que miente en silencio para siempre.
     -->
-    <Version>1.1.0</Version>
+    <Version>2.0.0</Version>
 
     <!--
       Un warning que aparece en cada build deja de leerse a los dos días, y a
