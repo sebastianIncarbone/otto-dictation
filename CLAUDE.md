@@ -45,7 +45,7 @@ dotnet run -- models --models large-v3-turbo,base
 dotnet run -- record                       # record the fixed clip set once
 dotnet run -- review                       # regenerate clips/referencias.json
 dotnet run -- bench --runtime vulkan       # one runtime per process, never a loop
-dotnet run -- voseo                        # compare Ollama correction models
+dotnet run -- voseo                        # measure the in-process Rioplatense corrector
 ```
 
 Releasing: push a tag. `git tag v0.2.0 && git push origin v0.2.0` — CI builds, tests,
@@ -60,7 +60,7 @@ Hexagonal, with the boundary enforced by the compiler rather than by convention:
 | `Otto.Core` | `net10.0` | Ports (`Ports.cs`) + orchestration (`DictationPipeline`). No OS code. |
 | `Otto.Speech` | `net10.0` | Whisper.net transcription, Silero VAD, per-context `initial_prompt`, resumable model download |
 | `Otto.Storage` | `net10.0` | SQLite + FTS5 notes, embedded SQL migrations |
-| `Otto.PostProcessing` | `net10.0` | Ollama over HTTP for Rioplatense correction, plus `EditGuard` |
+| `Otto.PostProcessing` | `net10.0` | In-process Rioplatense correction (LLamaSharp + Vulkan), plus `EditGuard` |
 | `Otto.Platform.Windows` | `net10.0-windows` | P/Invoke: hotkey, WASAPI capture, clipboard injection, overlay, GPU probe |
 | `Otto.App` | `net10.0-windows` | Avalonia tray app, notes window, settings, updates, uninstall |
 
@@ -97,13 +97,22 @@ pipeline stops being testable headlessly, the port separation has become decorat
 These are decisions with measurements or incidents behind them. Most are documented inline
 at the point of enforcement — read the surrounding comment before overriding one.
 
-- **Offline is the product claim.** The only network calls are the first-run model download
-  and the *manually triggered* update check (`Settings.CheckForUpdates` is off by default).
-  Ollama runs on `localhost`, which does not break the promise. Do not add startup network
+- **Offline is the product claim, and it is stronger now than it used to be.** The only
+  network calls in Otto's entire life are the first-run model downloads (speech, VAD and —
+  GPU-only — correction, see below) and the *manually triggered* update check
+  (`Settings.CheckForUpdates` is off by default). There used to be a carve-out here for
+  Ollama running on `localhost`; it is gone because there is nothing left to carve out —
+  correction runs in-process now, so after the downloads finish there is no network call of
+  any kind, ever, unless the user clicks "check for updates". Do not add startup network
   traffic.
-- **Everything optional degrades to nothing.** No Ollama → `NullPostProcessor` and raw
-  Whisper output. No tray icon → open the window instead. Character window throws → log and
-  keep dictating. A failed correction or save can never cost the user their dictation.
+- **Everything optional degrades to nothing.** `CorrectVoseo` off, or no GPU at all
+  (`Program.cs` wires `IPostProcessor` only when `settings.CorrectVoseo && acceleration ==
+  Acceleration.Gpu`) → `NullPostProcessor`, raw Whisper output. GPU present but the
+  correction GGUF is missing, still downloading, or fails to load → `LlamaPostProcessor
+  .IsAvailable` stays false and dictation runs on raw Whisper output too — same degradation,
+  reached a different way. No tray icon → open the window instead. Character window throws →
+  log and keep dictating. A failed correction or save can never cost the user their
+  dictation.
 - **The version comes from the git tag.** `Directory.Build.props` holds `<Version>`; CI
   overrides it from the tag via `publicar.ps1 -Version`. If the assembly version diverges
   from the published tag, `UpdateChecker` answers "up to date" forever and never fails
@@ -114,13 +123,69 @@ at the point of enforcement — read the surrounding comment before overriding o
   empty without invoking the model, which is what stops Whisper inventing text out of
   silence. Otherwise trim to first-to-last speech region and run *one* inference. Splitting
   per region measured ~10× slower and transcribed worse.
-- **Both models get warmed up at startup.** Vulkan compiles compute pipelines on first use
-  (measured >10 s cold vs 0,8 s warm) and Ollama cold-loads past its own 2-second budget.
-  Without the warm-up, the first dictation after install looks broken.
+- **Whisper still warms up at startup; the corrector warms up in the background, deferred.**
+  Vulkan compiles compute pipelines on first use (measured >10 s cold vs 0,8 s warm), so
+  `WhisperTranscriber.LoadAsync` is awaited before the hotkey registers — that cost is paid
+  once, before `Idle`, not on the first dictation. The correction model is different on
+  purpose: `DictationPipeline.StartAsync` reaches `Idle` on Whisper alone, then fires
+  `LoadCorrectorAsync` unawaited in the background (see its own doc comment — blocking on it
+  would add the corrector's full load time, plausibly several seconds cold, to every launch
+  of an autostart tray app). `LlamaPostProcessor.WarmUpAsync` runs one throwaway correction
+  right after `LoadAsync` succeeds, for the same reason Whisper's pipeline gets compiled
+  ahead of time: the first real correction should not be the one paying Vulkan's first-use
+  cost. Until that background load settles, or if it ever fails, dictation runs on raw
+  Whisper output — `IsAvailable` is false, not slow.
+- **The correction model's context window is bounded on purpose, not left at the model's
+  native size.** `PostProcessingOptions.ContextSize` is **4096**, not Qwen2.5-3B's native
+  32k. The math: `VoseoPrompt`'s system message plus its few-shot examples costs ~700 tokens
+  fixed, 1,024 tokens are reserved for the dictation itself, and 512 for the model's own
+  output — 2,236 tokens, rounded up with margin. Qwen2.5-3B's GQA KV cache costs ~36 KB/token,
+  so 4096 is ~147 MB of VRAM against ~1.2 GB at the native 32k — on an 8 GB budget shared with
+  Whisper, that difference is not decoration. `LlamaPostProcessor` returns the raw
+  transcription instead of letting llama.cpp truncate or throw when a dictation does not fit
+  inside the 1,024-token allowance; do not "fix" that by raising `ContextSize` back up.
+- **`Otto.PostProcessing` has three purpose-built concurrency primitives — do not collapse
+  them into a single lock.** They exist because one blocking, uncancellable native call sits
+  under a retryable load on a disposable singleton, and each solves a different consequence
+  of that. `CancelableWork` bounds the *caller's* wait on `LLamaWeights.LoadFromFile`, which
+  takes no token of its own — without it `ProbeTimeout` was accepted and silently ignored, so
+  a hung load could never be given up on. It bounds the wait only: the worker keeps running.
+  `LoadGenerationTracker` exists because of exactly that — `LlamaEngine` is a long-lived DI
+  singleton whose `LoadAsync` is retryable, so an abandoned attempt can still finish after a
+  newer one superseded it; without generation tracking whichever native call returns *last*
+  wins arbitrarily, and the loser's handles leak. `InFlightGate` covers a different race
+  again: llama.cpp's token loop has no cooperative cancellation once inside it, so disposing
+  the context or weights mid-call is a native access violation rather than a catchable
+  managed exception — `Dispose()` therefore waits for in-flight calls (bounded, 3 s) and
+  skips the free rather than tearing down underneath one. (Separately and more ordinarily,
+  `LlamaPostProcessor` holds a plain `SemaphoreSlim` so `ProbeAsync` loads once under
+  concurrent callers rather than once per caller.) All three are deliberately free of any
+  LLamaSharp type, so the races themselves are unit-testable without a GGUF or a GPU even
+  though the calls they guard are not.
 - **`EditGuard` rejects on proportion, not correctness.** In production there is no
   reference to compare against, so a correction that moves too much of the sentence
   (>25% length drift or >20% of words touched) is discarded and the raw text goes in. The
-  failure that matters is a silent rewrite of meaning, not a missed conjugation.
+  failure that matters is a silent rewrite of meaning, not a missed conjugation. This is the
+  entire reason an unsupervised in-process 3B model is safe to ship: `EditGuard` does not
+  need the correction to be *right*, only bounded.
+- **`tools/Otto.Bench`'s `voseo` command is the only thing that can catch a
+  correction-quality regression.** `LlamaPostProcessorTests` mocks `ICorrectionEngine` by
+  design, so the adapter logic (timeouts, `EditGuard` rejection, degradation to raw text) is
+  testable headlessly — which also means no unit test ever runs a real GGUF through a real
+  prompt. `dotnet run -- voseo` is what actually exercises the production
+  `LlamaEngine`/`ChatMlPrompt` stack against the bench corpus. Skipping it before a change to
+  the prompt, the engine, or the model is how a regression ships silently: it happened once
+  already during this feature's own implementation (an unescaped ChatML prompt plus a
+  singleton executor silently accumulating history across dictations pushed WER from 18%
+  untouched to 19% "corrected" — worse than doing nothing — while every mocked unit test
+  stayed green throughout).
+- **The tray's correction indicator is derived, never stored, and there is deliberately no
+  "reconnect."** `CorrectionTrayStates.For` checks `HasGpu` **first**: no GPU short-circuits
+  to `Unsupported` ahead of every other input, because a "reintentar" that can never succeed
+  on that hardware is worse than no button at all. Only then does it read `IPostProcessor
+  .IsAvailable`, whether the GGUF file exists, and whether the deferred load has settled, to
+  return Ready / Missing / Loading / Failed. There is no "connecting" state left over from
+  the Ollama era: an in-process model has no connection to lose.
 - **The hotkey polls for release on purpose.** `RegisterHotKey` never signals release, and
   the alternative — `WH_KEYBOARD_LL` — installs a system-wide keyboard hook that is
   structurally a keylogger and draws antivirus attention. Consequence: bindings must include
@@ -128,9 +193,15 @@ at the point of enforcement — read the surrounding comment before overriding o
 - **Clipboard injection has two obligations**, not one: restore what the user had, *and*
   set the exclusion formats so clipboard managers and Windows Clipboard History never
   record the dictation.
-- **The GPU probe runs before the download.** `HardwareProbe` checks for `vulkan-1.dll` and
-  picks `large-v3-turbo` (~1,6 GB) or `base` (~150 MB). Same phrase: 0,7 s on GPU, 17 s on
-  CPU — someone who gets the wrong model concludes the tool is broken.
+- **The GPU probe runs before the download, and now it gates a second model.**
+  `HardwareProbe` checks for `vulkan-1.dll` and picks `large-v3-turbo` (~1,6 GB) or `base`
+  (~150 MB) for transcription. Same phrase: 0,7 s on GPU, 17 s on CPU — someone who gets the
+  wrong model concludes the tool is broken. The same probe result now also decides whether
+  the correction model gets downloaded at all: `ProvisioningOptions.CorrectionCoordinates`
+  only returns real GGUF coordinates when `HasGpu && CorrectVoseo`; on CPU-only hardware the
+  ~2 GB Qwen2.5-3B-Instruct correction model is never fetched, never loaded, and the tray
+  never offers it. On a GPU machine with correction enabled, first run grows from ~1,6 GB to
+  ~3,6 GB.
 - **The overlay character window must never take focus and must stay click-through.**
   Stealing focus right before injection sends the dictation into Otto instead of the user's
   document.
@@ -246,5 +317,9 @@ still generated or drawn in code.
 
 `docs/adr/0001-stack-tecnologico.md` is the stack decision and what was rejected (including
 why Linux is out: Wayland blocks three of the five primitives Otto needs).
+`docs/adr/0002-in-process-correction-llamasharp.md` is why Ollama was dropped for an
+in-process corrector, superseding 0001's post-processing decision only.
 `docs/distribucion-y-primer-arranque.md` is the packaging checklist `publicar.ps1` satisfies.
-The `docs/hito-*.md` files carry the measurements the invariants above rest on.
+The `docs/hito-*.md` files carry the measurements the invariants above rest on —
+`docs/hito-4-resultados.md` specifically measured the Ollama-era corrector and stays as
+written; ADR 0002 carries the current numbers.

@@ -5,7 +5,8 @@
 > La primera es una propiedad de diseño y está resuelta. La segunda es un problema
 > de ingeniería que tiene trampas concretas, y acá están todas.
 >
-> Contexto: [Visión de producto](vision-producto.md) · [ADR 0001](adr/0001-stack-tecnologico.md)
+> Contexto: [Visión de producto](vision-producto.md) · [ADR 0001](adr/0001-stack-tecnologico.md) ·
+> [ADR 0002](adr/0002-in-process-correction-llamasharp.md)
 
 ---
 
@@ -19,12 +20,14 @@ de las herramientas elegidas: es la razón por la que se eligieron.
 | Captura de audio | Local (WASAPI) | No |
 | Transcripción (Whisper.net) | Local, en tu CPU/GPU | No |
 | Modelo de Whisper | Archivo en `%LOCALAPPDATA%\Otto\models\` | **Solo la descarga inicial** |
-| Post-procesamiento (Ollama) | Local, `http://localhost:11434` | No — es loopback, no sale de la máquina |
+| Post-procesamiento (LLamaSharp) | Local, en el mismo proceso — nada de HTTP | No |
+| Modelo de corrección (Qwen2.5-3B) | Archivo en `%LOCALAPPDATA%\Otto\models\`, solo si hay GPU | **Solo la descarga inicial** |
 | Notas e historial (SQLite) | Archivo en `%LOCALAPPDATA%\Otto\otto.db` | No |
 | Configuración | Archivo en `%APPDATA%\Otto\config.json` | No |
 
-**La única conexión de red en toda la vida de la aplicación es la descarga del
-modelo la primera vez.** Después de eso, Otto funciona con el cable desenchufado.
+**Las únicas conexiones de red en toda la vida de la aplicación son las descargas
+de modelos de la primera vez** — el de Whisper y, en máquinas con GPU, el de
+corrección. Después de eso, Otto funciona con el cable desenchufado.
 
 ### Reglas que protegen esa promesa
 
@@ -41,9 +44,12 @@ literalmente cierta. Entonces:
    una persona decida mirar no es lo mismo que la aplicación decida avisar. Quien
    nunca toque ese checkbox tiene una herramienta que, después de la descarga
    inicial, jamás abre un socket.
-3. **`localhost` no es "la nube".** Ollama corriendo en la misma máquina es local.
-   Vale la pena aclararlo en el README porque la gente ve "HTTP" y asume servidor
-   remoto.
+3. **No queda ningún llamado de red fuera de las descargas iniciales.** Hasta acá esta
+   promesa tenía una salvedad — Ollama corriendo en `http://localhost:11434` — que había que
+   aclarar porque "HTTP" suena a servidor remoto aunque sea loopback. Esa salvedad ya no
+   existe: la corrección al rioplatense corre en el mismo proceso, así que después de bajar
+   los modelos no hay ningún socket abierto, ni local ni remoto, salvo que el usuario mismo
+   pida chequear actualizaciones.
 4. Esto se puede **demostrar**: el README debería invitar a cortar la red y usar
    la herramienta. Es la prueba más contundente que tiene el proyecto.
 
@@ -157,24 +163,37 @@ funciona"**.
 2. **Recomendar el modelo según eso**, no imponer `large-v3-turbo` a todos:
    - GPU disponible → `large-v3-turbo`
    - Solo CPU → **`base`** (no `small`: medido en 3,5 s para un clip corto)
+   - La misma detección decide también si se ofrece la corrección al rioplatense: sin GPU,
+     ese modelo no se descarga ni se carga (ver trampa 5).
 3. Ofrecer una **prueba de latencia opcional** ahí mismo: graba tres segundos,
    transcribe, muestra el número real **de esa máquina**. Diez segundos de
    onboarding que convierten una decepción en una expectativa calibrada.
 4. Y en el README, la tabla de benchmarks va **por hardware**, con una fila de CPU
    sin GPU. El brief ya pedía esa tabla; esto la vuelve obligatoria.
 
-### Trampa 5 — La descarga del modelo son 1,5 GB
+### Trampa 5 — ahora son hasta tres archivos, no uno (y sin GPU se baja menos, no más)
 
-Es el primer contacto del usuario con la aplicación, así que no puede ser frágil.
+Es el primer contacto del usuario con la aplicación, así que no puede ser frágil — y desde
+que la corrección al rioplatense dejó de depender de Ollama y pasó a correr en el mismo
+proceso ([ADR 0002](adr/0002-in-process-correction-llamasharp.md)), `ModelProvisioner` baja
+hasta tres archivos en la primera ejecución, en este orden: el modelo de voz, el de VAD
+(chico, va rápido) y — solo si hay GPU y la corrección está activada — el modelo de
+corrección. El orden importa: si el tercero falla, Otto queda igual de usable con Whisper
+solo (`ModelProvisioner` no marca el arranque como fallido por eso); si el primero fallara, no
+habría nada. Por eso corre último y no bloquea a los otros dos.
 
-- Barra de progreso con velocidad y tiempo estimado (el brief ya lo pide).
+- Barra de progreso con velocidad y tiempo estimado (el brief ya lo pide) — para cada archivo.
 - **Descarga reanudable.** Que se corte a los 1,4 GB y haya que empezar de nuevo es
   una razón perfectamente válida para desinstalar algo.
 - **Verificación de checksum** al terminar. Un modelo corrupto falla de formas
-  rarísimas y confusas.
-- Permitir **elegir la carpeta** — no todo el mundo tiene 1,5 GB libres en `C:`.
-- Permitir **apuntar a un archivo ya descargado**, para quien ya tiene modelos GGML
+  rarísimas y confusas. (Pendiente para los tres archivos por igual — ver hito 6.)
+- Permitir **elegir la carpeta** — no todo el mundo tiene 3,6 GB libres en `C:`.
+- Permitir **apuntar a un archivo ya descargado**, para quien ya tiene modelos GGML o GGUF
   de otra herramienta.
+- **Sin GPU, la tercera descarga ni se ofrece.** Un modelo de 3B no responde dentro del
+  presupuesto de dictado en CPU, así que bajarlo ahí solo gastaría ancho de banda para una
+  función que nunca podría usarse — la misma lógica que ya decide el modelo de voz (`base` en
+  vez de `large-v3-turbo`) se aplica ahora también a la corrección.
 
 ### Trampa 6 — El micrófono puede estar bloqueado por Windows
 
@@ -212,9 +231,9 @@ solo `.exe` de salida, y el script vive en `build/otto.iss`.
 #### Por qué es por usuario y no en Archivos de programa
 
 Otto ya es una aplicación por usuario de punta a punta: configuración en
-`%APPDATA%`, notas y modelo en `%LOCALAPPDATA%`, arranque automático en `HKCU`.
+`%APPDATA%`, notas y modelos en `%LOCALAPPDATA%`, arranque automático en `HKCU`.
 Instalar en `Archivos de programa` no compartiría **nada** de eso — cada usuario
-igual se bajaría su propio modelo de 1,6 GB — y sumaría un aviso de UAC encima del
+igual se bajaría sus propios modelos, de 1,6 a 3,6 GB — y sumaría un aviso de UAC encima del
 de SmartScreen. Dos pantallas de miedo seguidas antes de ver la aplicación es peor
 producto, no más seriedad.
 
@@ -256,14 +275,14 @@ Ahora Otto se distribuye de dos maneras, así que hay dos caminos de desinstalac
 
 #### La trampa dentro de la trampa: desinstalar en silencio
 
-El desinstalador pregunta si borrar las notas y el modelo. La versión "cuidadosa"
+El desinstalador pregunta si borrar las notas y los modelos. La versión "cuidadosa"
 de ese código —preguntar siempre— tiene un agujero que muerde fuerte:
 
 > **Inno responde que sí a los cuadros de Sí/No cuando se los suprime con
 > `/SUPPRESSMSGBOXES`.** No respeta el botón por defecto.
 
 O sea que cualquiera que desinstale desde un script o una herramienta de
-administración perdería las notas y 1,6 GB de modelo sin pantalla y sin haberlo
+administración perdería las notas y hasta 3,6 GB de modelos sin pantalla y sin haberlo
 pedido. Por eso `CurUninstallStepChanged` chequea `WizardSilent()` y **conserva**
 cuando no hay nadie mirando. Quien de verdad quiera limpiar todo lo dice con
 `/DELETEDATA`.
@@ -305,7 +324,7 @@ que sale solo:
   "Encontré una GPU NVIDIA. Te recomiendo large-v3-turbo."
   "No encontré GPU. Te recomiendo small — large sería lento acá."
             ↓
-  Descarga del modelo, con progreso, reanudable, verificada
+  Descarga de los modelos — voz, VAD y (con GPU) corrección — con progreso, reanudable
             ↓
   Prueba de latencia opcional (3 segundos de audio)
   "En tu máquina: 0,9 s. Listo."
@@ -336,16 +355,17 @@ instalado.
 - [x] Se instala sin pedir administrador — por usuario, en `%LOCALAPPDATA%\Programs\Otto`
 - [x] Deja acceso directo en el menú Inicio y en el escritorio, ambos opcionales
 - [x] Aparece en "Agregar o quitar programas" y se desinstala desde ahí sin dejar nada
-- [x] Desinstalar no borra las notas ni el modelo salvo que el usuario diga que sí
+- [x] Desinstalar no borra las notas ni los modelos salvo que el usuario diga que sí
 - [x] Desinstalar en silencio **conserva** los datos — `WizardSilent()`, porque `/SUPPRESSMSGBOXES` contesta que sí
 - [x] Los accesos directos tienen ícono — generado en build, no commiteado
 - [x] Se descomprime y ejecuta sin instalar .NET — publicado autocontenido
 - [x] Se descomprime y ejecuta sin instalar el VC++ Redistributable — las tres DLL van al lado del ejecutable
 - [x] Arranca en una máquina sin GPU dedicada y recomienda un modelo usable — `HardwareProbe` decide antes de descargar
-- [x] La descarga del modelo sobrevive a un corte de red — verificado cortando a los 40 MB y reanudando
+- [x] Las descargas de modelos sobreviven a un corte de red — verificado cortando a los 40 MB y reanudando
 - [x] Da un mensaje claro si el micrófono está bloqueado por privacidad de Windows — bandera `Silent` de WASAPI
 - [x] Funciona con el WiFi apagado después de la primera vez
-- [x] Funciona sin Ollama instalado — se desactiva el post-proceso al arrancar
+- [x] Funciona sin GPU — la corrección ni se descarga ni se ofrece, Otto dicta igual con la
+      salida cruda de Whisper
 - [x] El README advierte sobre SmartScreen **antes** de que aparezca
 - [x] Se puede desinstalar sin dejar archivos sueltos — botón en la configuración
 - [x] Hay un link a VirusTotal de la release — lo arma el CI desde el SHA-256, junto al hash

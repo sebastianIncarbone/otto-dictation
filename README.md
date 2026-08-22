@@ -34,8 +34,9 @@ Windows dictation is not accurate enough in Spanish, especially with technical
 vocabulary and sentences that mix Spanish and English. Commercial alternatives fix
 that, but they charge a subscription and send your audio to somebody else's servers.
 
-Otto sends nothing anywhere. The only network call in its entire life is downloading
-the speech model the first time.
+Otto sends nothing anywhere. The only network calls in its entire life are downloading the
+speech and (optionally, GPU-only) correction models the first time — nothing after that,
+ever, unless you manually check for updates.
 
 ## What it does
 
@@ -87,8 +88,12 @@ It does not ask for administrator: Otto installs per user, into
 Start Menu and desktop shortcuts, and registers the usual entry under *Add or remove
 programs*. **You do not need to install .NET or anything else.**
 
-The first run downloads the speech model (~1.6 GB with a GPU, ~150 MB without) and
-opens the window. After that it starts straight into the tray.
+The first run downloads the speech model (~1.6 GB with a GPU, ~150 MB without), and — on a
+GPU machine, since Rioplatense correction is on by default — the ~2 GB correction model too,
+for **~3.6 GB total**. Both downloads are resumable and show progress. A machine with no GPU
+never fetches the correction model at all: a 3B model cannot answer inside the dictation
+budget on CPU, so Otto does not offer to try. After the download(s) finish, Otto opens the
+window once, then starts straight into the tray on every later launch.
 
 <details>
 <summary><b>Prefer not to install anything?</b></summary>
@@ -129,18 +134,23 @@ change the settings.
 
 ## Rioplatense correction (optional)
 
-Whisper flattens *voseo*: where you say *"instalá"* it writes *"instala"*. If you
-have [Ollama](https://ollama.com) installed, Otto fixes it:
+Whisper flattens *voseo*: where you say *"instalá"* it writes *"instala"*. Otto fixes it
+itself, in-process — no separate service to install or keep running. On first run, if your
+machine has a GPU, Otto downloads a small local model (Qwen2.5-3B-Instruct, ~2 GB) alongside
+the speech model and corrects every dictation with it.
 
-```bash
-ollama pull qwen2.5:3b
-```
+**Correction needs a GPU.** A 3B model cannot finish inside the ~2 s dictation budget on CPU,
+so on a machine with no GPU the model is never downloaded, never loaded, and the setting has
+no effect — Otto just uses Whisper's raw output. You can also turn correction off yourself,
+in Settings.
 
-Otto detects it at startup on its own. **Without it, Otto works exactly the same**,
-using Whisper's raw output.
+A correction that goes wrong is never worse than doing nothing: `EditGuard` discards any
+result that rewrites too much of the sentence, and the raw transcription goes in instead —
+see [ADR 0002](docs/adr/0002-in-process-correction-llamasharp.md) for how that is measured.
 
-[Milestone 4](docs/hito-4-resultados.md) explains why this cannot be a lookup table
-of replacements, and why the prompt mattered more than the model.
+[Milestone 4](docs/hito-4-resultados.md) explains why this cannot be a lookup table of
+replacements, and why the prompt mattered more than the model — measured back when correction
+ran over Ollama; the mechanism moved in-process since ([ADR 0002](docs/adr/0002-in-process-correction-llamasharp.md)), the reasoning did not.
 
 ## Known limitations
 
@@ -161,6 +171,7 @@ of replacements, and why the prompt mattered more than the model.
 |---|---|
 | [Product vision](docs/vision-producto.md) | What it is, what it is for, what it is not |
 | [ADR 0001 — Technology stack](docs/adr/0001-stack-tecnologico.md) | What was chosen, what was rejected, and why |
+| [ADR 0002 — In-process correction](docs/adr/0002-in-process-correction-llamasharp.md) | Why Ollama was dropped for an in-process model, and what changed |
 | [Milestone 0 — Latency and accuracy](docs/hito-0-resultados.md) | The viability gate |
 | [Milestone 0.5 — `initial_prompt`](docs/hito-0-5-resultados.md) | Technical vocabulary |
 | [Milestone 4 — Voseo correction](docs/hito-4-resultados.md) | Why the prompt mattered more than the model |
@@ -173,7 +184,7 @@ of replacements, and why the prompt mattered more than the model.
 Otto.Core              Ports and orchestration. No operating system code.
 Otto.Speech            Whisper.net: transcription, VAD, per-context prompt
 Otto.Storage           SQLite with FTS5: notes and search
-Otto.PostProcessing    Local model over HTTP: Rioplatense correction
+Otto.PostProcessing    LLamaSharp + Vulkan, in-process: Rioplatense correction
 Otto.Platform.Windows  P/Invoke: global hotkey, injection, clipboard, overlay
 Otto.App               Avalonia: tray, notes window, character
 ```
@@ -213,7 +224,7 @@ different from the published one, the update check would lie silently forever.
 ## Stack
 
 .NET 10 · Avalonia UI · Whisper.net (`large-v3-turbo`, Vulkan runtime) · SQLite ·
-Ollama (optional)
+LLamaSharp (Qwen2.5-3B-Instruct, Vulkan, optional, GPU-only)
 
 ## License
 

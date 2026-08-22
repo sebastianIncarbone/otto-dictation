@@ -37,8 +37,9 @@ terminología técnica y frases que mezclan español e inglés. Las alternativas
 comerciales lo resuelven, pero con suscripción y mandando tu audio a servidores de
 terceros.
 
-Otto no manda nada a ningún lado. La única conexión de red en toda su vida es la
-descarga del modelo la primera vez.
+Otto no manda nada a ningún lado. Las únicas conexiones de red en toda su vida son la
+descarga de los modelos de voz y (opcional, solo con GPU) de corrección la primera vez —
+después de eso, nunca más, salvo que vos mismo busques actualizaciones.
 
 ## Qué hace
 
@@ -90,8 +91,12 @@ No pide administrador: Otto se instala para tu usuario, en
 directo en el menú Inicio y en el escritorio, y deja la entrada correspondiente en
 *Agregar o quitar programas*. **No hace falta instalar .NET ni nada más.**
 
-La primera vez baja el modelo de voz (~1,6 GB con GPU, ~150 MB sin ella) y abre la
-ventana. Después arranca directo en la bandeja.
+La primera vez baja el modelo de voz (~1,6 GB con GPU, ~150 MB sin ella) y —en una máquina
+con GPU, porque la corrección al rioplatense viene activada por defecto— también el modelo de
+corrección (~2 GB), o sea **~3,6 GB en total**. Las dos descargas son reanudables y muestran
+progreso. Una máquina sin GPU no baja el modelo de corrección: un modelo de 3B no puede
+responder dentro del presupuesto de dictado en CPU, así que Otto ni lo ofrece. Después de
+bajar los modelos, Otto abre la ventana una vez y de ahí en más arranca directo en la bandeja.
 
 <details>
 <summary><b>¿Preferís no instalar nada?</b></summary>
@@ -131,18 +136,24 @@ cambiar la configuración.
 
 ## Corrección al rioplatense (opcional)
 
-Whisper neutraliza el voseo: donde decís *"instalá"* escribe *"instala"*. Si tenés
-[Ollama](https://ollama.com) instalado, Otto lo corrige:
+Whisper neutraliza el voseo: donde decís *"instalá"* escribe *"instala"*. Otto lo corrige
+solo, en el mismo proceso — sin ningún servicio aparte que instalar ni mantener corriendo. En
+la primera ejecución, si tu máquina tiene GPU, Otto baja un modelo local chico
+(Qwen2.5-3B-Instruct, ~2 GB) junto con el de voz, y corrige cada dictado con él.
 
-```bash
-ollama pull qwen2.5:3b
-```
+**La corrección necesita GPU.** Un modelo de 3B no llega a responder dentro del presupuesto de
+~2 s por dictado en CPU, así que en una máquina sin GPU el modelo nunca se descarga, nunca se
+carga, y la opción no hace nada — Otto simplemente usa la salida cruda de Whisper. También
+podés apagar la corrección vos mismo, desde la configuración.
 
-Otto lo detecta solo al arrancar. **Si no lo tenés, funciona igual** con la salida
-cruda de Whisper.
+Una corrección que sale mal nunca es peor que no corregir: `EditGuard` descarta cualquier
+resultado que reescriba demasiado la frase, y va la transcripción cruda en su lugar — ver
+[ADR 0002](docs/adr/0002-in-process-correction-llamasharp.md) para cómo se mide eso.
 
-El [hito 4](docs/hito-4-resultados.md) cuenta por qué esto no puede ser una tabla
-de reemplazos y por qué el prompt importó más que el modelo.
+El [hito 4](docs/hito-4-resultados.md) cuenta por qué esto no puede ser una tabla de
+reemplazos y por qué el prompt importó más que el modelo — medido cuando la corrección corría
+sobre Ollama; el mecanismo se movió al mismo proceso desde entonces
+([ADR 0002](docs/adr/0002-in-process-correction-llamasharp.md)), el razonamiento no cambió.
 
 ## Limitaciones conocidas
 
@@ -165,6 +176,7 @@ La documentación técnica está en inglés.
 |---|---|
 | [Visión de producto](docs/vision-producto.md) | Qué es, para qué sirve, qué no es |
 | [ADR 0001 — Stack tecnológico](docs/adr/0001-stack-tecnologico.md) | Qué se eligió, qué se descartó y por qué |
+| [ADR 0002 — Corrección en el mismo proceso](docs/adr/0002-in-process-correction-llamasharp.md) | Por qué se sacó Ollama por un modelo en el mismo proceso, y qué cambió |
 | [Hito 0 — Latencia y precisión](docs/hito-0-resultados.md) | La compuerta de viabilidad |
 | [Hito 0.5 — `initial_prompt`](docs/hito-0-5-resultados.md) | Vocabulario técnico |
 | [Hito 4 — Corrección de voseo](docs/hito-4-resultados.md) | Por qué el prompt importó más que el modelo |
@@ -177,7 +189,7 @@ La documentación técnica está en inglés.
 Otto.Core              Puertos y orquestación. Sin código de sistema operativo.
 Otto.Speech            Whisper.net: transcripción, VAD, prompt por contexto
 Otto.Storage           SQLite con FTS5: notas y búsqueda
-Otto.PostProcessing    Modelo local por HTTP: corrección al rioplatense
+Otto.PostProcessing    LLamaSharp + Vulkan, en el mismo proceso: corrección al rioplatense
 Otto.Platform.Windows  P/Invoke: atajo global, inyección, portapapeles, overlay
 Otto.App               Avalonia: bandeja, ventana de notas, personaje
 ```
@@ -217,7 +229,7 @@ publicada, el chequeo de actualizaciones mentiría en silencio para siempre.
 ## Stack
 
 .NET 10 · Avalonia UI · Whisper.net (`large-v3-turbo`, runtime Vulkan) · SQLite ·
-Ollama (opcional)
+LLamaSharp (Qwen2.5-3B-Instruct, Vulkan, opcional, requiere GPU)
 
 ## Licencia
 
