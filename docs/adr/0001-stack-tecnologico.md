@@ -192,6 +192,11 @@ brief.
 | Tests | xUnit + NSubstitute | Solo servicios de `Otto.Core`; sin tests de UI en v1 |
 | CI | GitHub Actions, `windows-latest` | Compila, testea y publica el ZIP |
 
+> **Actualización 2026-08-22:** la fila "LLM opcional" de esta tabla quedó superada, solo en
+> la parte de post-procesamiento, por [ADR 0002](0002-in-process-correction-llamasharp.md):
+> la corrección al rioplatense corre en el mismo proceso, no por HTTP a Ollama. El resto de
+> esta decisión — plataforma, UI, STT, persistencia — sigue vigente sin cambios.
+
 ### Estructura del repositorio
 
 Los **puertos** (interfaces) viven en `Otto.Core`. Todo lo específico del sistema
