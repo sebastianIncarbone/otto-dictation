@@ -34,4 +34,19 @@ public sealed record PostProcessingOptions
 
     /// <summary>Hard cap on generated tokens per correction.</summary>
     public int MaxTokens { get; init; } = 512;
+
+    /// <summary>
+    /// How long the correction model can sit unused before <see cref="LlamaPostProcessor"/>
+    /// unloads it to free VRAM. Defaults to 15 minutes — long enough that
+    /// consecutive dictations a few minutes apart never pay for a reload
+    /// (and re-pay Vulkan's own first-use pipeline compile, see
+    /// <c>WhisperTranscriber.WarmUpAsync</c>'s own doc comment for the
+    /// measured cost of that), short enough that leaving Otto running
+    /// overnight does not hold roughly a gigabyte and a half of VRAM for
+    /// nothing. Null means "never" — the model stays resident for the life
+    /// of the process, matching the feature's original always-loaded
+    /// behaviour, and is the only way Otto.App's
+    /// <c>Settings.CorrectionIdleUnloadMinutes</c> == 0 is representable here.
+    /// </summary>
+    public TimeSpan? IdleUnloadInterval { get; init; } = TimeSpan.FromMinutes(15);
 }

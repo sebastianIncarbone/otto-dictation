@@ -64,4 +64,41 @@ public class CancelableWorkTests
 
         Assert.Equal("boom", thrown.Message);
     }
+
+    /// <summary>
+    /// The generic overload <see cref="LlamaEngine.UnloadAsync"/> needs: it has to
+    /// report back whether it actually freed the native handles (bounded by
+    /// <c>InFlightGate.TryUnload</c>'s own timeout), the same "caller's wait is
+    /// bounded, the work itself is not" contract as the non-generic overload.
+    /// </summary>
+    [Fact]
+    public async Task La_sobrecarga_generica_devuelve_el_resultado_del_trabajo()
+    {
+        var result = await CancelableWork.Run(() => 42, CancellationToken.None);
+
+        Assert.Equal(42, result);
+    }
+
+    [Fact]
+    public async Task La_sobrecarga_generica_tambien_deja_de_esperar_cuando_el_token_se_cancela()
+    {
+        var workStarted = new TaskCompletionSource();
+        var neverReleased = new TaskCompletionSource();
+
+        using var budget = new CancellationTokenSource();
+
+        var work = CancelableWork.Run(() =>
+        {
+            workStarted.SetResult();
+            neverReleased.Task.GetAwaiter().GetResult();
+            return true;
+        }, budget.Token);
+
+        await workStarted.Task;
+        budget.CancelAfter(TimeSpan.FromMilliseconds(30));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => work);
+
+        neverReleased.SetResult();
+    }
 }

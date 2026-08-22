@@ -116,10 +116,20 @@ public sealed class DictationPipeline : IDisposable
     {
         try
         {
+            // Enabled first: IPostProcessor is now ALWAYS the real corrector
+            // on GPU hardware regardless of Settings.CorrectVoseo — see
+            // Program.cs's own comment on why the DI decision had to stop
+            // depending on that toggle, now that it can flip at runtime.
+            // Loading a ~2 GB model into VRAM here for a feature the user
+            // switched off would be exactly the startup cost this toggle
+            // exists to let someone avoid; SetEnabledAsync is what loads it
+            // later if they turn it back on.
+            //
             // Asked once at startup rather than on every dictation: a health
             // check in the hot path would cost more than the correction it
             // guards.
-            await postProcessor.ProbeAsync(cancellationToken);
+            if (postProcessor.Enabled)
+                await postProcessor.ProbeAsync(cancellationToken);
         }
         catch (Exception ex)
         {

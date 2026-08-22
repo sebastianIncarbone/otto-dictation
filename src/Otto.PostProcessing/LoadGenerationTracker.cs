@@ -81,4 +81,32 @@ public sealed class LoadGenerationTracker
             disposeCurrent();
         }
     }
+
+    /// <summary>
+    /// The reversible half of <see cref="Dispose"/> — frees whatever is
+    /// currently published, under the same lock, for the idle-unload timer
+    /// and the runtime correction on/off toggle, both of which need
+    /// <see cref="LlamaEngine.LoadAsync"/> callable again afterward on the
+    /// SAME instance, unlike <see cref="Dispose"/>'s once-per-process shutdown.
+    ///
+    /// Bumping <see cref="current"/> is what closes the SEPARATE race
+    /// <see cref="Dispose"/> already closed a different way: a LoadAsync
+    /// attempt that was still in flight when this runs (its blocking native
+    /// call not truly cancellable, per <see cref="CancelableWork"/>'s own doc
+    /// comment) is now older than <see cref="current"/>, so its eventual
+    /// <see cref="TryPublish"/> call discards instead of resurrecting handles
+    /// this method just freed — even though, unlike <see cref="Dispose"/>,
+    /// nothing here is marked permanently disposed. A LATER <see cref="ClaimGeneration"/>
+    /// call (a genuine reload) claims a generation past this bump and
+    /// publishes normally.
+    /// </summary>
+    public void Unload(Action disposeCurrent)
+    {
+        lock (gate)
+        {
+            if (disposed) return;
+            current++;
+            disposeCurrent();
+        }
+    }
 }

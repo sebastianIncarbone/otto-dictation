@@ -22,4 +22,16 @@ public interface ICorrectionEngine
     Task<string> ChatAsync(
         IReadOnlyList<(string Role, string Content)> messages,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Frees the model's native handles while leaving <see cref="LoadAsync"/>
+    /// callable again afterward — the idle-unload timer and the runtime
+    /// correction on/off toggle both need this, and unlike <see cref="IDisposable.Dispose"/>
+    /// (terminal, called once at process shutdown) this can run many times
+    /// over the engine's life. Returns false — WITHOUT freeing anything —
+    /// when a call already in flight could not be waited out within the
+    /// engine's own bounded timeout; the caller must treat that as "still
+    /// loaded" rather than lying that the model went away.
+    /// </summary>
+    Task<bool> UnloadAsync(CancellationToken cancellationToken = default);
 }

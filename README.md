@@ -142,7 +142,13 @@ the speech model and corrects every dictation with it.
 **Correction needs a GPU.** A 3B model cannot finish inside the ~2 s dictation budget on CPU,
 so on a machine with no GPU the model is never downloaded, never loaded, and the setting has
 no effect — Otto just uses Whisper's raw output. You can also turn correction off yourself,
-in Settings.
+in Settings or from the tray, which unloads the model and gives the VRAM back straight away.
+
+**It also gets out of the way on its own.** Keeping a 3B model resident costs around 2 GB of
+VRAM, which is a lot to hold while you are not dictating — so after 15 minutes idle Otto
+unloads it. The next dictation goes in uncorrected and quietly reloads the model in the
+background; the one after that is corrected again. That trade is configurable in Settings,
+including turning it off so the model stays loaded.
 
 A correction that goes wrong is never worse than doing nothing: `EditGuard` discards any
 result that rewrites too much of the sentence, and the raw transcription goes in instead —

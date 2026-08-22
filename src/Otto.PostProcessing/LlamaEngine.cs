@@ -138,13 +138,24 @@ public sealed class LlamaEngine : ICorrectionEngine, IDisposable
                 attempt,
                 publish: () =>
                 {
-                    // Defensive, not expected in practice: LlamaPostProcessor
-                    // never calls LoadAsync again after a success. If it ever
-                    // did, the previously published weights get disposed here
-                    // rather than overwritten and leaked.
+                    // No longer purely defensive: LlamaPostProcessor.SetEnabledAsync
+                    // and its idle-unload timer both call LoadAsync again after a
+                    // successful UnloadAsync, on the SAME engine instance — see
+                    // UnloadAsync's own doc comment. If a previous load's weights
+                    // are still sitting here (UnloadAsync gave up rather than
+                    // freeing them, or this really is the defensive case the
+                    // original comment described), they get disposed here rather
+                    // than overwritten and leaked.
                     weights?.Dispose();
                     weights = loadedWeights;
                     executor = loadedExecutor;
+
+                    // Reopens InFlightGate if UnloadAsync closed it — a no-op on
+                    // the very first LoadAsync, since the gate starts open.
+                    // Without this, ChatAsync would refuse every call forever
+                    // after the first unload, even once a reload actually
+                    // published working weights right here.
+                    inFlight.Reopen();
                 },
                 discard: () =>
                 {
@@ -217,6 +228,51 @@ public sealed class LlamaEngine : ICorrectionEngine, IDisposable
     }
 
     /// <summary>
+    /// The reversible half of <see cref="Dispose"/> — frees the native
+    /// weights while leaving <see cref="LoadAsync"/> callable again
+    /// afterward. Exists for <see cref="LlamaPostProcessor"/>'s idle-unload
+    /// timer and its runtime correction on/off toggle, both of which reload
+    /// later on this SAME instance; <see cref="Dispose"/> itself stays
+    /// terminal, called exactly once at process shutdown.
+    ///
+    /// Threads the SAME two gates <see cref="LoadAsync"/> and
+    /// <see cref="Dispose"/> already coordinate through, via their
+    /// REVERSIBLE halves: <see cref="InFlightGate.TryUnload"/> instead of
+    /// <c>TryDispose</c> (closes the gate rather than disposing it
+    /// terminally — a later successful <see cref="LoadAsync"/> publish is
+    /// what reopens it, via <see cref="InFlightGate.Reopen"/>), and
+    /// <see cref="LoadGenerationTracker.Unload"/> instead of <c>Dispose</c>
+    /// (bumps the generation to orphan whatever LoadAsync attempt is still
+    /// in flight — see that method's own doc comment — without marking the
+    /// tracker permanently disposed).
+    ///
+    /// Returns false, WITHOUT freeing anything, exactly when <see cref="Dispose"/>
+    /// would give up: a call still in flight past <see cref="DisposeWaitTimeout"/>.
+    /// The caller (<see cref="LlamaPostProcessor.UnloadAsync"/>) treats that
+    /// as "still loaded" rather than lying that the model went away.
+    /// </summary>
+    public Task<bool> UnloadAsync(CancellationToken cancellationToken = default) =>
+        CancelableWork.Run(() =>
+        {
+            var freed = inFlight.TryUnload(DisposeWaitTimeout, () =>
+                generation.Unload(disposeCurrent: () =>
+                {
+                    weights?.Dispose();
+                    weights = null;
+                    executor = null;
+                }));
+
+            if (!freed)
+            {
+                log.LogWarning(
+                    "Correction model still in use after waiting {Seconds:F0}s to unload; leaving it loaded",
+                    DisposeWaitTimeout.TotalSeconds);
+            }
+
+            return freed;
+        }, cancellationToken);
+
+    /// <summary>
     /// Waits, bounded by <see cref="DisposeWaitTimeout"/>, for any
     /// <see cref="ChatAsync"/> call in flight — a real correction, or
     /// <see cref="LlamaPostProcessor.ProbeAsync"/>'s warm-up, which drives the
@@ -228,18 +284,20 @@ public sealed class LlamaEngine : ICorrectionEngine, IDisposable
     /// wait can only shrink from here.
     ///
     /// Only reaches <see cref="generation"/>'s own Load-vs-Dispose handling
-    /// (unchanged by this fix — see its own doc comment) once that wait
-    /// succeeds: the currently published handles are disposed, and
-    /// <see cref="generation"/> is marked disposed under its own lock, so an
-    /// in-flight <see cref="LoadAsync"/> attempt's eventual <c>TryPublish</c>
-    /// call is guaranteed to discard (and dispose) what it built instead of
-    /// racing this disposal or resurrecting fields it just cleared. If the
-    /// <see cref="inFlight"/> wait times out instead, <see cref="generation"/>
-    /// is never reached at all — one more leaked allocation on a process that
-    /// is already exiting, not a crash.
+    /// once that wait succeeds: the currently published handles are disposed,
+    /// and <see cref="generation"/> is marked disposed under its own lock, so
+    /// an in-flight <see cref="LoadAsync"/> attempt's eventual
+    /// <c>TryPublish</c> call is guaranteed to discard (and dispose) what it
+    /// built instead of racing this disposal or resurrecting fields it just
+    /// cleared. If the <see cref="inFlight"/> wait times out instead,
+    /// <see cref="generation"/> is never reached at all — one more leaked
+    /// allocation on a process that is already exiting, not a crash.
     ///
     /// Idempotent via <see cref="InFlightGate"/>'s own idempotency: a second
-    /// call is a no-op.
+    /// call is a no-op. Terminal, unlike <see cref="UnloadAsync"/>: this marks
+    /// <see cref="generation"/> disposed for good rather than merely bumping
+    /// it, so nothing calls <see cref="LoadAsync"/> on this instance again
+    /// afterward.
     /// </summary>
     public void Dispose()
     {

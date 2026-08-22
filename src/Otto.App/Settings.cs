@@ -37,8 +37,27 @@ public sealed record Settings
     /// Corrects the transcription to Rioplatense with a local model. On by default
     /// because it degrades to nothing when no model is installed, and measured at
     /// a 28% relative reduction in word error when one is.
+    ///
+    /// Runtime-switchable now, not just a startup decision: <c>Program.cs</c>
+    /// wires <c>IPostProcessor</c> to the real corrector on any GPU machine
+    /// regardless of this flag, and this only decides whether it starts
+    /// loaded — see <c>DictationPipeline.StartAsync</c>'s own comment on why
+    /// the two had to be decoupled.
     /// </summary>
     public bool CorrectVoseo { get; init; } = true;
+
+    /// <summary>
+    /// Minutes the correction model can sit unused before Otto unloads it to
+    /// free VRAM. 0 means "never" — it stays resident for the life of the
+    /// process, the feature's original always-loaded behaviour. Defaults to
+    /// 15: long enough that consecutive dictations a few minutes apart never
+    /// pay for a reload, short enough that leaving Otto running overnight
+    /// does not hold roughly a gigabyte and a half of VRAM for nothing. Only
+    /// meaningful while <see cref="CorrectVoseo"/> is on; see
+    /// <c>PostProcessingOptions.IdleUnloadInterval</c> for where this turns
+    /// into an actual timer.
+    /// </summary>
+    public int CorrectionIdleUnloadMinutes { get; init; } = 15;
 
     /// <summary>
     /// Off out of the box, deliberately. Otto promises to work without internet;

@@ -140,4 +140,137 @@ public class InFlightGateTests
         Assert.True(second);
         Assert.Equal(0, freeCount);
     }
+
+    // ---- TryUnload: the reversible half of TryDispose, for the idle-unload
+    // timer and the runtime correction on/off toggle. Same coordination as
+    // TryDispose (block new entries, wait for calls in flight, then free),
+    // but the gate can be reopened afterward instead of staying closed
+    // forever — see LlamaEngine.UnloadAsync's own doc comment.
+
+    [Fact]
+    public void Sin_llamadas_en_vuelo_unload_libera_de_inmediato()
+    {
+        var gate = new InFlightGate();
+
+        var freedNatives = false;
+        var result = gate.TryUnload(TimeSpan.FromSeconds(1), () => freedNatives = true);
+
+        Assert.True(result);
+        Assert.True(freedNatives);
+    }
+
+    [Fact]
+    public void Una_llamada_nueva_es_rechazada_apenas_arranca_el_unload()
+    {
+        var gate = new InFlightGate();
+
+        gate.TryUnload(TimeSpan.FromSeconds(1), () => { });
+
+        Assert.False(gate.TryEnter());
+    }
+
+    [Fact]
+    public async Task Unload_espera_a_que_termine_la_llamada_en_vuelo_antes_de_liberar()
+    {
+        var gate = new InFlightGate();
+        Assert.True(gate.TryEnter());
+
+        var freedNatives = false;
+        var unloadTask = Task.Run(() => gate.TryUnload(TimeSpan.FromSeconds(5), () => freedNatives = true));
+
+        var early = await Task.WhenAny(unloadTask, Task.Delay(TimeSpan.FromMilliseconds(300)));
+        Assert.NotSame(unloadTask, early);
+        Assert.False(freedNatives);
+
+        gate.Exit();
+
+        var finished = await Task.WhenAny(unloadTask, Task.Delay(TimeSpan.FromSeconds(5)));
+        Assert.Same(unloadTask, finished);
+        Assert.True(await unloadTask);
+        Assert.True(freedNatives);
+    }
+
+    [Fact]
+    public void Unload_agota_el_tiempo_de_espera_y_no_libera_si_la_llamada_sigue_en_vuelo()
+    {
+        var gate = new InFlightGate();
+        Assert.True(gate.TryEnter());
+
+        var freedNatives = false;
+        var result = gate.TryUnload(TimeSpan.FromMilliseconds(50), () => freedNatives = true);
+
+        Assert.False(result);
+        Assert.False(freedNatives);
+    }
+
+    /// <summary>
+    /// The whole reason TryUnload is not just TryDispose under another name:
+    /// giving up must hand new calls BACK — a timed-out unload must not leave
+    /// the engine permanently unusable for a model that never actually got
+    /// freed.
+    /// </summary>
+    [Fact]
+    public void Unload_que_agota_el_tiempo_deja_entrar_llamadas_nuevas_igual()
+    {
+        var gate = new InFlightGate();
+        Assert.True(gate.TryEnter());
+
+        gate.TryUnload(TimeSpan.FromMilliseconds(50), () => { });
+
+        Assert.True(gate.TryEnter());
+    }
+
+    [Fact]
+    public void Unload_es_idempotente()
+    {
+        var gate = new InFlightGate();
+
+        var freeCount = 0;
+        var first = gate.TryUnload(TimeSpan.FromSeconds(1), () => freeCount++);
+        var second = gate.TryUnload(TimeSpan.FromSeconds(1), () => freeCount++);
+
+        Assert.True(first);
+        Assert.True(second);
+        Assert.Equal(1, freeCount);
+    }
+
+    [Fact]
+    public void Reopen_permite_llamadas_nuevas_despues_de_un_unload_exitoso()
+    {
+        // Models a reload: LoadAsync's own successful publish calls Reopen
+        // once new weights/executor are in place, so ChatAsync can reach
+        // them again.
+        var gate = new InFlightGate();
+        gate.TryUnload(TimeSpan.FromSeconds(1), () => { });
+        Assert.False(gate.TryEnter());
+
+        gate.Reopen();
+
+        Assert.True(gate.TryEnter());
+    }
+
+    [Fact]
+    public void Reopen_no_hace_nada_si_el_gate_nunca_se_cerro()
+    {
+        var gate = new InFlightGate();
+
+        gate.Reopen();
+
+        Assert.True(gate.TryEnter());
+    }
+
+    /// <summary>
+    /// A real Dispose stays terminal even after Reopen is called — Reopen
+    /// only reverses TryUnload's closed state, never TryDispose's.
+    /// </summary>
+    [Fact]
+    public void Reopen_no_revive_un_gate_realmente_disposed()
+    {
+        var gate = new InFlightGate();
+        gate.TryDispose(TimeSpan.FromSeconds(1), () => { });
+
+        gate.Reopen();
+
+        Assert.False(gate.TryEnter());
+    }
 }

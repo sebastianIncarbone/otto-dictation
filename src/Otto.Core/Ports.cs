@@ -150,13 +150,78 @@ public interface IPostProcessor
     /// Idempotent ensure-loaded, not a connectivity probe: an implementation loads
     /// (and warms up) the correction model at most once, and this is safe to call
     /// concurrently — races are serialized rather than each paying for their own
-    /// load. Called once at startup; an implementation MAY also expose it to a
-    /// user-triggered retry after a failed load.
+    /// load. Called once at startup — but ONLY when <see cref="Enabled"/> is
+    /// already true there, see <see cref="DictationPipeline.StartAsync"/>'s own
+    /// doc comment — an implementation MAY also expose it to a user-triggered
+    /// retry after a failed load.
     /// </summary>
     Task<bool> ProbeAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Returns the corrected text, or the original whenever anything goes wrong.</summary>
     Task<string> ProcessAsync(string text, DictationContext context, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether the user currently wants correction on — distinct from
+    /// <see cref="IsAvailable"/>, which additionally requires the model to be
+    /// loaded right now. An implementation that is wired up at all (GPU
+    /// hardware present) starts at whatever the setting was at launch;
+    /// <see cref="SetEnabledAsync"/> is the only thing that changes it
+    /// afterward. <see cref="NullPostProcessor"/> — no GPU, nothing wired —
+    /// stays false forever: there is nothing here to turn on.
+    /// </summary>
+    bool Enabled { get; }
+
+    /// <summary>
+    /// Turns correction on or off at runtime — what the Settings checkbox
+    /// and the tray toggle both call, mirroring the same two-owner pattern
+    /// <c>App.SetCharacterVisible</c> already uses for the character
+    /// overlay. Enabling loads the model if it is not already available;
+    /// disabling frees its native handles while leaving the implementation
+    /// able to load again later. A no-op for an implementation with nothing
+    /// to load or free — <see cref="NullPostProcessor"/>'s own version does
+    /// nothing at all — and safe to call repeatedly with the same value.
+    /// </summary>
+    Task SetEnabledAsync(bool enabled, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reconfigures the idle-unload interval — what a Settings save or a
+    /// tray-driven change calls. Null means "never unload". A no-op for an
+    /// implementation with nothing to unload.
+    /// </summary>
+    void SetIdleTimeout(TimeSpan? interval);
+
+    /// <summary>
+    /// True when the model was unloaded by the idle timer specifically —
+    /// distinct from "never loaded" (missing GGUF, unsupported driver) and
+    /// from "the user turned it off" (<see cref="Enabled"/> false). Exists so
+    /// a caller (the tray) can tell "this will reload automatically on the
+    /// next dictation" from "this needs a manual reintentar", which matters
+    /// once <see cref="AvailabilityChanged"/> makes an idle unload visible at
+    /// all — without it, that transition would read exactly like a genuine
+    /// load failure. Cleared the moment a reload actually succeeds; an
+    /// implementation with nothing to unload (<see cref="NullPostProcessor"/>)
+    /// stays false forever.
+    /// </summary>
+    bool IdleUnloaded { get; }
+
+    /// <summary>
+    /// Fired whenever <see cref="IsAvailable"/>, <see cref="Enabled"/>, or
+    /// <see cref="IdleUnloaded"/> actually CHANGES value as a result of
+    /// <see cref="ProbeAsync"/>, <see cref="UnloadAsync"/>, or
+    /// <see cref="SetEnabledAsync"/> — covers every transition after
+    /// construction: an idle unload, the background reload that follows it, a
+    /// manual toggle (which fires immediately, before the toggle's own load
+    /// or unload has even started — see <see cref="SetEnabledAsync"/>'s own
+    /// doc comment), and a manual "reintentar". Deliberately narrower than
+    /// "an operation just finished": a load that fails without ever having
+    /// been available does not raise this on its own (nothing observable
+    /// changed) — the ONE place that also needs to know "an attempt settled,
+    /// whether or not anything changed" is <c>DictationPipeline</c>'s own
+    /// startup-only <c>CorrectionAvailabilityChanged</c>, which stays separate
+    /// on purpose. An implementation with nothing to load or free
+    /// (<see cref="NullPostProcessor"/>) never raises this.
+    /// </summary>
+    event Action? AvailabilityChanged;
 }
 
 /// <summary>Does nothing. What Otto uses when no local model is installed.</summary>
@@ -168,6 +233,28 @@ public sealed class NullPostProcessor : IPostProcessor
 
     public Task<string> ProcessAsync(string text, DictationContext context, CancellationToken cancellationToken = default) =>
         Task.FromResult(text);
+
+    // Nothing is ever wired up behind this implementation — no GPU, no
+    // model — so there is nothing an on/off toggle or an idle interval
+    // could meaningfully change. Otto.App mirrors this at the tray/Settings
+    // layer by not offering the toggle at all on hardware that resolves to
+    // NullPostProcessor; these members exist so a caller that reaches them
+    // anyway (a test double swapped without checking hardware first, say)
+    // gets an honest "always off, does nothing" rather than a crash.
+    public bool Enabled => false;
+
+    public Task SetEnabledAsync(bool enabled, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    public void SetIdleTimeout(TimeSpan? interval) { }
+
+    public bool IdleUnloaded => false;
+
+    // No backing field, no storage — there is nothing here that could ever
+    // change, so there is nothing to raise this event about. A field-backed
+    // auto-event that no code path ever invokes would trip CS0067 under this
+    // solution's TreatWarningsAsErrors; an explicit no-op accessor pair says
+    // the same thing on purpose instead of by accident.
+    public event Action? AvailabilityChanged { add { } remove { } }
 }
 
 /// <summary>
