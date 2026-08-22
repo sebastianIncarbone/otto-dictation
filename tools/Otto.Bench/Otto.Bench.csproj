@@ -16,6 +16,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- LLamaSharp + LLamaSharp.Backend.Vulkan arrive transitively through this
+         reference, same as Otto.App: the corrector lives in one place, and its
+         native package refs travel with it instead of being pinned a second
+         time here where they could drift out of version lockstep. -->
+    <ProjectReference Include="..\..\src\Otto.PostProcessing\Otto.PostProcessing.csproj" />
     <ProjectReference Include="..\..\src\Otto.Speech\Otto.Speech.csproj" />
   </ItemGroup>
 
