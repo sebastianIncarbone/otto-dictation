@@ -15,17 +15,45 @@ public sealed class ModelProvisioner(ProvisioningOptions options, IModelSource s
     /// Files, not <c>Settings.IsFirstRun</c>: deleting the models directory has to
     /// reproduce the download, and that user is not on a first run.
     ///
-    /// The correction leg counts too, gated the same way <see cref="ProvisionAsync"/>
-    /// gates its own third leg (<see cref="ProvisioningOptions.HasGpu"/> and a
-    /// configured <see cref="ProvisioningOptions.CorrectionFileName"/>). Without this,
-    /// an Ollama-era install that already has Whisper+VAD on disk would never trip
-    /// provisioning for the GGUF at all — this file-existence check is the entire
-    /// migration-detection mechanism for that population, so it has to know about
-    /// every leg <see cref="ProvisionAsync"/> can actually download.
+    /// The correction leg counts too, gated by exactly the same conditions
+    /// <see cref="ProvisionAsync"/>'s own third leg checks before it will attempt a
+    /// download — <see cref="ProvisioningOptions.HasGpu"/>, a configured
+    /// <see cref="ProvisioningOptions.CorrectionFileName"/> AND a configured
+    /// <see cref="ProvisioningOptions.CorrectionUrl"/>. All three, not a subset:
+    /// an earlier version of this property checked only the first two, so a
+    /// configuration that set a file name without a URL (or vice versa) left this
+    /// permanently true for a leg <see cref="ProvisionAsync"/> would silently
+    /// never download — an unrecoverable "needs provisioning forever" state, since
+    /// nothing else re-checks it. Without the leg counting at all, an Ollama-era
+    /// install that already has Whisper+VAD on disk would never trip provisioning
+    /// for the GGUF — this file-existence check is the entire migration-detection
+    /// mechanism for that population, so it has to know about every leg
+    /// <see cref="ProvisionAsync"/> can actually download.
     /// </summary>
     public bool NeedsProvisioning =>
         !File.Exists(options.SpeechPath) || !File.Exists(options.VadPath)
-        || (options.HasGpu && options.CorrectionFileName is not null && !File.Exists(options.CorrectionPath));
+        || (options.HasGpu && options.CorrectionFileName is not null && options.CorrectionUrl is not null
+            && !File.Exists(options.CorrectionPath));
+
+    /// <summary>
+    /// Which leg <see cref="ProvisionAsync"/> will report first, mirroring its own
+    /// check order exactly (speech, then VAD, then correction). Exists so a caller
+    /// that needs to seed UI state BEFORE the first <see cref="IProgress{T}"/>
+    /// report arrives — <c>App.axaml.cs</c>, on startup — can show the leg that is
+    /// actually about to run instead of always assuming the speech model. An
+    /// Ollama-era upgrade with Whisper+VAD already on disk starts on the
+    /// correction leg instead, and seeding "descargando {Label}, solo la primera
+    /// vez…" for that population is simply wrong — they are not on a first run.
+    ///
+    /// Meaningless when <see cref="NeedsProvisioning"/> is false (it still returns
+    /// <see cref="ProvisioningState.DownloadingCorrection"/>, since nothing is
+    /// missing); callers are expected to check that first, the same way
+    /// <c>App.axaml.cs</c> already does before reading this property at all.
+    /// </summary>
+    public ProvisioningState InitialProvisioningState =>
+        !File.Exists(options.SpeechPath) ? ProvisioningState.DownloadingSpeech
+        : !File.Exists(options.VadPath) ? ProvisioningState.PreparingVad
+        : ProvisioningState.DownloadingCorrection;
 
     // The DictationPipeline.busy pattern: two concurrent legs would open the same
     // .part file with FileShare.None and throw, so the second caller is turned away

@@ -9,7 +9,7 @@ namespace Otto.PostProcessing;
 /// fails to load, Otto disables the feature and dictation carries on with
 /// Whisper's raw output.
 /// </summary>
-public sealed class LlamaPostProcessor : IPostProcessor
+public sealed class LlamaPostProcessor : IPostProcessor, IDisposable
 {
     // VoseoPrompt's system message plus its few-shot examples costs ~700 tokens
     // fixed, and the model's own output is capped at options.MaxTokens (512 by
@@ -27,7 +27,13 @@ public sealed class LlamaPostProcessor : IPostProcessor
     private readonly ILogger<LlamaPostProcessor> log;
     private readonly SemaphoreSlim gate = new(1, 1);
 
-    private bool loaded;
+    // Set ONLY after a load fully succeeds (engine.LoadAsync AND WarmUpAsync
+    // both returned without throwing) — never in a catch/failure path. That
+    // asymmetry is the whole fix: it is what makes ProbeAsync idempotent on
+    // success (a Ready processor never reloads) while staying retryable after
+    // a failure or a ProbeTimeout cancellation, which is what the tray's
+    // "reintentar" action depends on to recover without restarting Otto.
+    private bool loadSucceeded;
 
     public LlamaPostProcessor(ICorrectionEngine engine, PostProcessingOptions options, ILogger<LlamaPostProcessor> log)
     {
@@ -39,40 +45,62 @@ public sealed class LlamaPostProcessor : IPostProcessor
     public bool IsAvailable { get; private set; }
 
     /// <summary>
-    /// Idempotent ensure-loaded, not a connectivity check: the model loads (and
-    /// warms up) at most once per instance. Gated so concurrent callers — the
-    /// startup probe racing a tray "reintentar" click, for instance — load exactly
-    /// once instead of each paying for their own Vulkan context.
+    /// Ensures the model is loaded, gated by a <see cref="SemaphoreSlim"/> so
+    /// concurrent callers — the startup probe racing a tray "reintentar" click,
+    /// for instance — never run two loads at once; the second caller waits for
+    /// the in-flight attempt and observes its outcome instead of starting its own.
+    ///
+    /// Idempotent ONLY on success: once a load succeeds, every later call
+    /// returns immediately without touching the gate or reloading. A failed or
+    /// canceled/timed-out load is deliberately NOT sticky — it is a normal,
+    /// expected outcome (CPU-only hardware, a missing GGUF, an unsupported
+    /// Vulkan driver, a hung native call past <see cref="PostProcessingOptions.ProbeTimeout"/>)
+    /// and the next call retries the load from scratch. Without this asymmetry
+    /// a single failed load would permanently disable the tray's recovery path
+    /// for the rest of the process's life.
     /// </summary>
     public async Task<bool> ProbeAsync(CancellationToken cancellationToken = default)
     {
-        if (loaded) return IsAvailable;
+        if (loadSucceeded) return IsAvailable;
 
         await gate.WaitAsync(cancellationToken);
 
         try
         {
-            if (loaded) return IsAvailable;
+            // Re-check inside the gate: another caller may have already
+            // finished a successful load while this one was waiting for it.
+            if (loadSucceeded) return IsAvailable;
 
             using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             budget.CancelAfter(options.ProbeTimeout);
 
             await engine.LoadAsync(budget.Token);
-            IsAvailable = true;
             log.LogInformation("Correction model loaded");
 
+            // IsAvailable flips only AFTER warm-up returns — including when its
+            // own failure is swallowed inside WarmUpAsync — not right after
+            // LoadAsync. ProcessAsync's only gate is IsAvailable, and the engine's
+            // InteractiveExecutor/LLamaContext is not reentrant: flipping it early
+            // let a dictation land in this exact window and call ChatAsync
+            // concurrently with warm-up's own in-flight ChatAsync against the
+            // SAME native handle. With Ollama this was harmless — independent
+            // HTTP requests — but in-process it was a real race.
             await WarmUpAsync(budget.Token);
+            IsAvailable = true;
+            loadSucceeded = true;
         }
         catch (Exception ex)
         {
             // A failed load is a perfectly normal way to run Otto — CPU-only
-            // hardware, a missing GGUF, an unsupported Vulkan driver.
+            // hardware, a missing GGUF, an unsupported Vulkan driver, or a
+            // ProbeTimeout cancellation. loadSucceeded stays false (see the
+            // field's doc comment) so the NEXT ProbeAsync call retries instead
+            // of finding a permanently stuck gate.
             IsAvailable = false;
             log.LogInformation(ex, "Correction model could not be loaded; using the raw transcription");
         }
         finally
         {
-            loaded = true;
             gate.Release();
         }
 
@@ -172,4 +200,21 @@ public sealed class LlamaPostProcessor : IPostProcessor
     }
 
     private static int EstimateTokens(string text) => (int)Math.Ceiling(text.Length / CharactersPerToken);
+
+    /// <summary>
+    /// Forwards to the engine, which is where the native GGUF/Vulkan handles
+    /// actually live. Not every <see cref="ICorrectionEngine"/> owns
+    /// anything to release — the test doubles in this project's own tests
+    /// don't — so the cast is deliberately soft rather than a hard
+    /// downcast. This call site does NOT go through <see cref="gate"/> —
+    /// production's <c>LlamaEngine</c> is what keeps that safe on its own end:
+    /// a load still in flight (its own <c>LoadGenerationTracker</c>) and a
+    /// correction or warm-up still in flight (its own <c>InFlightGate</c>,
+    /// which is what <see cref="gate"/> bypassing would otherwise have made
+    /// unsafe — WarmUpAsync runs the very same <c>ChatAsync</c> a real
+    /// correction does, while holding <see cref="gate"/>, and this method
+    /// never waits on it) are both handled there. This method only needs to
+    /// reach it.
+    /// </summary>
+    public void Dispose() => (engine as IDisposable)?.Dispose();
 }

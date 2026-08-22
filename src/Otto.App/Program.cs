@@ -59,6 +59,29 @@ internal static class Program
         var acceleration = HardwareProbe.Detect();
         var (speechModel, speechFile, speechSize) = HardwareProbe.Recommend(acceleration);
 
+        var settingsStore = new SettingsStore(SettingsStore.DefaultPath);
+        var settings = settingsStore.Load();
+
+        // Writing the defaults straight away means the first-run window shows once and
+        // not on every launch.
+        if (settings.IsFirstRun) settingsStore.Save(settings);
+
+        // Qwen2.5-3B-Instruct, Q4_K_M quantization — small enough to load
+        // quickly and still land Rioplatense correction inside the 2s
+        // dictation budget. Modeled on the same coordinates the
+        // tools/Otto.Bench spike validated. Settings has to be loaded
+        // before this point (see above) so CorrectionCoordinates can gate
+        // on settings.CorrectVoseo too — a GPU user who explicitly turned
+        // correction off must not still have Otto silently download ~2 GB
+        // for it on next launch.
+        var (correctionFileName, correctionUrl, correctionLabel, correctionSize) = ProvisioningOptions.CorrectionCoordinates(
+            hasGpu: acceleration == Acceleration.Gpu,
+            correctVoseo: settings.CorrectVoseo,
+            fileName: "qwen2.5-3b-instruct-q4_k_m.gguf",
+            url: "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf",
+            label: "qwen2.5-3b-instruct",
+            size: "~2 GB");
+
         var provisioningOptions = new ProvisioningOptions
         {
             ModelsDirectory = modelsDir,
@@ -70,19 +93,14 @@ internal static class Program
             // Same probe, same reasoning as the speech model above: a 3B
             // correction model can never fit inside the 2s dictation budget on
             // CPU, so ModelProvisioner skips the leg entirely there rather than
-            // downloading ~2 GB nobody can use. The correction file/URL/label/
-            // size coordinates themselves are still unset here — wiring the real
-            // GGUF coordinates in is a later phase's job, alongside the DI swap
-            // to LlamaPostProcessor.
+            // downloading ~2 GB nobody can use.
             HasGpu = acceleration == Acceleration.Gpu,
+
+            CorrectionFileName = correctionFileName,
+            CorrectionUrl = correctionUrl,
+            CorrectionLabel = correctionLabel,
+            CorrectionSize = correctionSize,
         };
-
-        var settingsStore = new SettingsStore(SettingsStore.DefaultPath);
-        var settings = settingsStore.Load();
-
-        // Writing the defaults straight away means the first-run window shows once and
-        // not on every launch.
-        if (settings.IsFirstRun) settingsStore.Save(settings);
 
         var services = new ServiceCollection();
 
@@ -120,13 +138,19 @@ internal static class Program
         services.AddSingleton<IForegroundWindow, ForegroundWindowInspector>();
         services.AddSingleton<IOverlayStyler, OverlayStyler>();
 
-        // Post-processing is optional: with no local model listening, Otto works just
-        // the same on Whisper's raw output.
-        services.AddSingleton(new PostProcessingOptions { Model = settings.PostProcessingModel });
-        services.AddSingleton<IPostProcessor>(sp => settings.CorrectVoseo
-            ? new OllamaPostProcessor(
+        // Post-processing is optional: with no local model loaded, Otto works just
+        // the same on Whisper's raw output. Skipped entirely — not merely left
+        // unprobed — on CPU-only hardware, the same role HardwareProbe already
+        // plays for the speech model above: a 3B model can never land inside the
+        // 2s dictation budget there, so there is no point paying for the load.
+        services.AddSingleton(new PostProcessingOptions { ModelPath = provisioningOptions.CorrectionPath ?? "" });
+        services.AddSingleton<IPostProcessor>(sp => settings.CorrectVoseo && acceleration == Acceleration.Gpu
+            ? new LlamaPostProcessor(
+                new LlamaEngine(
+                    sp.GetRequiredService<PostProcessingOptions>(),
+                    sp.GetRequiredService<ILogger<LlamaEngine>>()),
                 sp.GetRequiredService<PostProcessingOptions>(),
-                sp.GetRequiredService<ILogger<OllamaPostProcessor>>())
+                sp.GetRequiredService<ILogger<LlamaPostProcessor>>())
             : new NullPostProcessor());
         services.AddSingleton<INoteRepository>(sp =>
             new SqliteNoteRepository(databasePath, sp.GetRequiredService<ILogger<SqliteNoteRepository>>()));

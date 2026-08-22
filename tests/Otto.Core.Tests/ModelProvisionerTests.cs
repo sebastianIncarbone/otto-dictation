@@ -337,6 +337,61 @@ public sealed class ModelProvisionerTests : IDisposable
     }
 
     [Fact]
+    public void NeedsProvisioning_ignora_un_nombre_de_archivo_sin_URL_configurada()
+    {
+        // Gate asymmetry: ProvisionAsync's own third leg requires BOTH
+        // CorrectionPath and CorrectionUrl before it will attempt a download —
+        // CorrectionFileName alone is not enough. Before this fix,
+        // NeedsProvisioning only checked CorrectionFileName, so a configuration
+        // that set one without the other left NeedsProvisioning permanently
+        // true for a leg ProvisionAsync would silently never download —
+        // an unrecoverable "needs provisioning forever" state.
+        var options = OptionsWithCorrection() with { CorrectionUrl = null };
+        File.WriteAllBytes(options.SpeechPath, []);
+        File.WriteAllBytes(options.VadPath, []);
+
+        var provisioner = Build(options);
+
+        Assert.False(provisioner.NeedsProvisioning);
+    }
+
+    [Fact]
+    public void InitialProvisioningState_es_DownloadingSpeech_si_falta_el_habla()
+    {
+        var options = OptionsWithCorrection();
+        var provisioner = Build(options);
+
+        Assert.Equal(ProvisioningState.DownloadingSpeech, provisioner.InitialProvisioningState);
+    }
+
+    [Fact]
+    public void InitialProvisioningState_es_PreparingVad_si_solo_falta_el_detector_de_voz()
+    {
+        var options = OptionsWithCorrection();
+        File.WriteAllBytes(options.SpeechPath, []);
+
+        var provisioner = Build(options);
+
+        Assert.Equal(ProvisioningState.PreparingVad, provisioner.InitialProvisioningState);
+    }
+
+    [Fact]
+    public void InitialProvisioningState_es_DownloadingCorrection_para_un_usuario_que_actualiza_desde_Ollama()
+    {
+        // The exact scenario finding #3 exists for: Whisper+VAD already on disk,
+        // only the GGUF missing. App.axaml.cs must seed the provisioning card
+        // with this state, not DownloadingSpeech — an upgrading user is not on
+        // a first run, and DownloadingSpeech's copy says "solo la primera vez".
+        var options = OptionsWithCorrection();
+        File.WriteAllBytes(options.SpeechPath, []);
+        File.WriteAllBytes(options.VadPath, []);
+
+        var provisioner = Build(options);
+
+        Assert.Equal(ProvisioningState.DownloadingCorrection, provisioner.InitialProvisioningState);
+    }
+
+    [Fact]
     public async Task Baja_el_modelo_de_correccion_como_tercera_etapa_despues_del_habla_y_el_detector()
     {
         var options = OptionsWithCorrection();

@@ -56,6 +56,14 @@ public sealed class DictationPipeline : IDisposable
     public event Action<Note>? Saved;
 
     /// <summary>
+    /// Fired once the deferred correction-model load kicked off by
+    /// <see cref="StartAsync"/> settles — successfully or not. Lets a caller (the
+    /// tray, the notes window) update its own state without polling
+    /// <see cref="IPostProcessor.IsAvailable"/>.
+    /// </summary>
+    public event Action? CorrectionAvailabilityChanged;
+
+    /// <summary>
     /// Fired when the key was held but nothing was said.
     ///
     /// Distinct from a failure: nothing went wrong, there was simply no speech. It
@@ -84,16 +92,49 @@ public sealed class DictationPipeline : IDisposable
         await transcriber.LoadAsync(cancellationToken);
         log.LogInformation("Model loaded in {Seconds:F1} s", watch.Elapsed.TotalSeconds);
 
-        // Asked once at startup rather than on every dictation: a health check in
-        // the hot path would cost more than the correction it guards.
-        await postProcessor.ProbeAsync(cancellationToken);
-
         hotkey.Pressed += OnPressed;
         hotkey.Released += OnReleased;
         hotkey.Register(binding);
         RegisteredHotkey = binding;
 
         Transition(DictationState.Idle);
+
+        // Deferred, not awaited: the point below — probed once at startup rather
+        // than on every dictation, because a health check in the hot path would
+        // cost more than the correction it guards — was always about not probing
+        // per dictation, never about blocking hotkey readiness on it. Awaiting it
+        // here would add the corrector's own load time (unmeasured, plausibly
+        // several seconds cold) to every single launch of an autostart tray app.
+        // Dictation is already fully usable on raw Whisper output the moment
+        // Idle is reached above; a correction landing a few seconds later is
+        // Otto's documented "everything optional degrades to nothing", not a
+        // wait imposed on the user.
+        _ = LoadCorrectorAsync(cancellationToken);
+    }
+
+    private async Task LoadCorrectorAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Asked once at startup rather than on every dictation: a health
+            // check in the hot path would cost more than the correction it
+            // guards.
+            await postProcessor.ProbeAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // postProcessor.ProbeAsync is documented never to throw — every known
+            // implementation swallows its own failure into IsAvailable == false —
+            // but this runs detached from StartAsync's caller, so nothing else
+            // would ever observe an exception here. The same rule as everywhere
+            // else in this class: a failure in the optional half must never cost
+            // the user their already-working dictation.
+            log.LogWarning(ex, "Could not load the correction model; dictation continues with raw text");
+        }
+        finally
+        {
+            CorrectionAvailabilityChanged?.Invoke();
+        }
     }
 
     private void OnPressed()
@@ -210,5 +251,19 @@ public sealed class DictationPipeline : IDisposable
         hotkey.Released -= OnReleased;
         hotkey.Dispose();
         capture.Dispose();
+
+        // Only LlamaPostProcessor actually owns anything native — the GGUF
+        // weights and Vulkan context inside its LlamaEngine.
+        // NullPostProcessor and every test double have nothing to release,
+        // so the cast is soft rather than widening IPostProcessor itself
+        // with an IDisposable member every implementation would have to
+        // carry. Forwarding here — instead of registering LlamaEngine as
+        // its own DI service in Program.cs — matches this class's existing
+        // shape above (hotkey/capture) and Program.cs's own composition-root
+        // convention: nothing there disposes the ServiceProvider itself at
+        // shutdown, so a container-owned singleton would never actually be
+        // released either. This is the one call site both the tray's
+        // "Salir" and App.RunUninstall already use.
+        (postProcessor as IDisposable)?.Dispose();
     }
 }

@@ -40,8 +40,6 @@ public sealed record Settings
     /// </summary>
     public bool CorrectVoseo { get; init; } = true;
 
-    public string PostProcessingModel { get; init; } = "qwen2.5:3b";
-
     /// <summary>
     /// Off out of the box, deliberately. Otto promises to work without internet;
     /// a request at startup would turn that promise into a half-truth. The "check

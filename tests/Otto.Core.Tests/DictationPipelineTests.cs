@@ -22,7 +22,7 @@ public class DictationPipelineTests
     // local model is installed — the configuration most people will run.
     private readonly IPostProcessor postProcessor = new NullPostProcessor();
 
-    private DictationPipeline Build()
+    private DictationPipeline Build(IPostProcessor? postProcessor = null)
     {
         foreground.Current().Returns(new DictationContext("code", "Program.cs"));
         capture.Stop().Returns(new AudioBuffer(new float[16_000]));
@@ -34,7 +34,7 @@ public class DictationPipelineTests
                 call.ArgAt<DictationContext>(1), call.ArgAt<TimeSpan>(2)));
 
         return new DictationPipeline(
-            hotkey, capture, transcriber, injector, foreground, notes, postProcessor,
+            hotkey, capture, transcriber, injector, foreground, notes, postProcessor ?? this.postProcessor,
             NullLogger<DictationPipeline>.Instance);
     }
 
@@ -188,6 +188,92 @@ public class DictationPipelineTests
 
         await injector.Received(1).InjectAsync("hola", Arg.Any<CancellationToken>());
         Assert.Equal(DictationState.Idle, pipeline.State);
+    }
+
+    [Fact]
+    public async Task StartAsync_no_espera_a_que_termine_de_cargar_el_corrector()
+    {
+        // Design decision #4: transcriber.LoadAsync → hotkey registered → Idle →
+        // the corrector loads in the background. Awaiting the corrector's own
+        // ProbeAsync here would add its full load time to every launch of an
+        // autostart tray app; dictation must already be usable on raw Whisper
+        // output the moment StartAsync returns.
+        var releaseProbe = new TaskCompletionSource();
+        var postProcessor = Substitute.For<IPostProcessor>();
+        postProcessor.ProbeAsync(Arg.Any<CancellationToken>()).Returns(async _ =>
+        {
+            await releaseProbe.Task;
+            return true;
+        });
+
+        using var pipeline = Build(postProcessor);
+
+        // Would hang here forever if StartAsync awaited ProbeAsync directly —
+        // this await returning at all is the assertion.
+        await pipeline.StartAsync(HotkeyBinding.Default);
+
+        Assert.Equal(DictationState.Idle, pipeline.State);
+
+        releaseProbe.SetResult();
+    }
+
+    [Fact]
+    public async Task CorrectionAvailabilityChanged_se_dispara_cuando_termina_la_carga_diferida()
+    {
+        var releaseProbe = new TaskCompletionSource();
+        var postProcessor = Substitute.For<IPostProcessor>();
+        postProcessor.ProbeAsync(Arg.Any<CancellationToken>()).Returns(async _ =>
+        {
+            await releaseProbe.Task;
+            return true;
+        });
+
+        using var pipeline = Build(postProcessor);
+        var fired = false;
+        pipeline.CorrectionAvailabilityChanged += () => fired = true;
+
+        await pipeline.StartAsync(HotkeyBinding.Default);
+
+        // Not yet: the deferred load has not settled, so the event must not have
+        // fired just because Idle was reached.
+        Assert.False(fired);
+
+        releaseProbe.SetResult();
+
+        for (var attempt = 0; attempt < 100 && !fired; attempt++)
+            await Task.Delay(10);
+
+        Assert.True(fired);
+        await postProcessor.Received(1).ProbeAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public void Dispose_libera_el_post_processor_si_implementa_IDisposable()
+    {
+        // LlamaPostProcessor owns a LlamaEngine, and that engine's native
+        // GGUF/Vulkan handles were never released anywhere in production
+        // before this test existed — Program.cs builds it inline in the
+        // IPostProcessor factory, never registers it as its own DI service,
+        // and DictationPipeline.Dispose() disposed only hotkey/capture.
+        var disposablePostProcessor = Substitute.For<IPostProcessor, IDisposable>();
+        var pipeline = Build((IPostProcessor)disposablePostProcessor);
+
+        pipeline.Dispose();
+
+        ((IDisposable)disposablePostProcessor).Received(1).Dispose();
+    }
+
+    [Fact]
+    public void Dispose_no_falla_si_el_post_processor_no_implementa_IDisposable()
+    {
+        // NullPostProcessor — what most installs run with, or CPU-only
+        // hardware — has nothing to release. Dispose() must not assume
+        // every IPostProcessor is also an IDisposable.
+        var pipeline = Build(new NullPostProcessor());
+
+        var exception = Record.Exception(() => pipeline.Dispose());
+
+        Assert.Null(exception);
     }
 
     [Fact]

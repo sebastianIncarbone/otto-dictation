@@ -52,4 +52,30 @@ public sealed record ProvisioningOptions
     public string SpeechPath => Path.Combine(ModelsDirectory, SpeechFileName);
     public string VadPath => Path.Combine(ModelsDirectory, VadFileName);
     public string? CorrectionPath => CorrectionFileName is null ? null : Path.Combine(ModelsDirectory, CorrectionFileName);
+
+    /// <summary>
+    /// The correction leg's download coordinates, or four nulls when the leg
+    /// should not be offered at all: on CPU-only hardware (a 3B model can
+    /// never land inside the 2s dictation budget, so downloading it would
+    /// only cost bandwidth — see <see cref="HasGpu"/>'s own doc) or when the
+    /// user has explicitly turned the feature off (<c>Settings.CorrectVoseo</c>
+    /// == false). Otto.App's <c>Program.cs</c> calls this instead of assigning
+    /// the four <c>Correction*</c> properties directly, so the decision is a
+    /// plain static method — testable with no DI container, no
+    /// <c>Settings</c> type (this project must not reference <c>Otto.App</c>),
+    /// and no mocks. <see cref="ModelProvisioner"/> already treats a
+    /// <see langword="null"/> <see cref="CorrectionFileName"/>/<see cref="CorrectionUrl"/>
+    /// as "nothing to provision" — see its own
+    /// <see cref="ModelProvisioner.NeedsProvisioning"/> doc comment — so
+    /// returning nulls here is the entire fix; no change to
+    /// <see cref="ModelProvisioner"/> itself was needed.
+    /// </summary>
+    public static (string? FileName, string? Url, string? Label, string? Size) CorrectionCoordinates(
+        bool hasGpu,
+        bool correctVoseo,
+        string fileName,
+        string url,
+        string label,
+        string size) =>
+        hasGpu && correctVoseo ? (fileName, url, label, size) : (null, null, null, null);
 }
