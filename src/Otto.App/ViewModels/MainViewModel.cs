@@ -98,6 +98,36 @@ public sealed partial class MainViewModel : ObservableObject
     /// </summary>
     public bool IsShowingNotes => !IsProvisioning && !IsSettingsOpen;
 
+    /// <summary>
+    /// Whether the settings screen is the thing on screen right now — the same
+    /// "alternatives, not layers" rule <see cref="IsShowingNotes"/> already
+    /// states, applied to Ajustes instead of the notes list.
+    ///
+    /// <para>
+    /// Before this existed, <c>MainWindow.axaml</c> bound the settings panel's
+    /// visibility to <see cref="IsSettingsOpen"/> alone. That was safe only by
+    /// accident: the one button that sets <see cref="IsSettingsOpen"/> to
+    /// <see langword="true"/> is itself hidden while <see cref="IsProvisioning"/>
+    /// is true, and nothing else ever flipped <see cref="IsProvisioning"/> after
+    /// startup — so the two states could never actually be true at once. The
+    /// tray's "reintentar" on a missing correction model broke that assumption:
+    /// it can set <see cref="IsProvisioning"/> at an arbitrary later moment,
+    /// with no relationship to whatever the window already had open, and Ajustes
+    /// and the download card would render on top of each other.
+    /// </para>
+    /// <para>
+    /// <see cref="IsSettingsOpen"/> itself is deliberately left untouched by a
+    /// provisioning cycle — it stays the user's real intent rather than being
+    /// reset to <see langword="false"/> and forgotten. That is what makes this a
+    /// pure derived property instead of a third piece of state to keep in sync:
+    /// once <see cref="IsProvisioning"/> goes back to <see langword="false"/>,
+    /// this recomputes to <see langword="true"/> on its own and Ajustes
+    /// reappears exactly where the user left it, with nothing destroyed and
+    /// nothing to explicitly restore.
+    /// </para>
+    /// </summary>
+    public bool IsShowingSettings => IsSettingsOpen && !IsProvisioning;
+
     [ObservableProperty] private string language;
     [ObservableProperty] private bool startWithWindows;
     [ObservableProperty] private bool showCharacter;
@@ -638,6 +668,7 @@ public sealed partial class MainViewModel : ObservableObject
         if (!value) CancelHotkeyCapture();
 
         OnPropertyChanged(nameof(IsShowingNotes));
+        OnPropertyChanged(nameof(IsShowingSettings));
     }
 
     /// <summary>The binding being edited — a pure function of <see cref="Captured"/>, never typed independently.</summary>
@@ -929,7 +960,11 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private bool isProvisioning;
 
     /// <inheritdoc cref="IsShowingNotes"/>
-    partial void OnIsProvisioningChanged(bool value) => OnPropertyChanged(nameof(IsShowingNotes));
+    partial void OnIsProvisioningChanged(bool value)
+    {
+        OnPropertyChanged(nameof(IsShowingNotes));
+        OnPropertyChanged(nameof(IsShowingSettings));
+    }
 
     [ObservableProperty] private string provisioningText = "";
     [ObservableProperty] private string provisioningDetail = "";

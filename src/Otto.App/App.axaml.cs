@@ -18,7 +18,16 @@ public partial class App : Application
     private MainWindow? window;
     private CharacterWindow? character;
     private NativeMenuItem? characterItem;
-    private NativeMenuItem? ollamaItem;
+    private NativeMenuItem? correctionItem;
+
+    /// <summary>
+    /// Whether a correction-model load attempt — the deferred one
+    /// <see cref="DictationPipeline.StartAsync"/> kicks off, or a manual
+    /// "reintentar" click — has settled at least once. Before the first one
+    /// settles, <see cref="CorrectionTrayStates.For"/> cannot yet tell "still
+    /// loading" from "failed", so the item reads as Loading instead of guessing.
+    /// </summary>
+    private bool correctionLoadSettled;
 
     /// <summary>
     /// Which overlay to build. Held here rather than read from
@@ -289,28 +298,84 @@ public partial class App : Application
         var bringCharacterToFront = new NativeMenuItem("Traer al frente");
         bringCharacterToFront.Click += (_, _) => BringCharacterToFront();
 
-        // Re-probes on click regardless of the current state: cheap when Ollama is
-        // already up, and the only way to recover without restarting Otto when it
-        // was opened after Otto's own startup probe already ran and failed.
         var postProcessor = services.GetRequiredService<IPostProcessor>();
-        ollamaItem = new NativeMenuItem();
-        ollamaItem.Click += async (_, _) =>
-        {
-            await postProcessor.ProbeAsync();
-            RefreshOllamaItem(postProcessor);
-        };
+        var provisioningOptions = services.GetRequiredService<ProvisioningOptions>();
 
-        // Phase 3 made the startup probe fire-and-forget (StartAsync no
-        // longer awaits it), so RefreshOllamaItem's call right after
-        // StartPipelineAsync's await usually still shows the pre-load
-        // default. CorrectionAvailabilityChanged is what DictationPipeline
-        // fires once that deferred load actually settles — without this
-        // subscription nothing in Otto.App ever listened for it, so the
-        // item read "no conectado" forever on essentially every normal GPU
-        // + CorrectVoseo=true launch, self-correcting only if the user
-        // happened to click the retry item themselves.
-        var pipeline = services.GetRequiredService<DictationPipeline>();
-        pipeline.CorrectionAvailabilityChanged += () => RefreshOllamaItem(postProcessor);
+        // Hidden entirely when the feature is off, and equally hidden on
+        // CPU-only hardware — a 3B model can never load inside the 2s
+        // dictation budget there (see ProvisioningOptions.HasGpu's own doc
+        // comment, and CorrectionCoordinates, which already skips
+        // downloading the GGUF on that hardware). There is nothing to report
+        // on a corrector that was never asked to load and never could be:
+        // the same "reintentar" that recovers Missing/Failed elsewhere would
+        // be a button that can never succeed here, which is worse than no
+        // button at all. CorrectionTrayStates.For enforces the same
+        // guarantee independently (CorrectionTrayStateKind.Unsupported can
+        // never have CanRetry: true) — this check is what keeps the item off
+        // the menu entirely rather than showing that state. ProvisioningOptions
+        // is built from the startup snapshot (see its own doc comment on
+        // CorrectVoseo/HasGpu), so neither input changes under this check
+        // without a relaunch.
+        if (services.GetRequiredService<Settings>().CorrectVoseo && provisioningOptions.HasGpu)
+        {
+            // There is no "reconnect" here — an in-process model has no
+            // connection to lose. One "reintentar" action covers both
+            // recoverable states (see CorrectionTrayStates): Missing
+            // re-provisions the GGUF, Failed just reloads it. Ready and
+            // Loading are no-ops on click.
+            correctionItem = new NativeMenuItem();
+            correctionItem.Click += async (_, _) =>
+            {
+                var current = CorrectionTrayStates.For(
+                    postProcessor.IsAvailable,
+                    provisioningOptions.CorrectionPath is { } path && File.Exists(path),
+                    correctionLoadSettled,
+                    provisioningOptions.HasGpu);
+
+                if (!current.CanRetry) return;
+
+                // Missing: the GGUF itself is not on disk. ModelProvisioner
+                // skips the speech/VAD legs (already present, or this item
+                // would not exist yet) and only attempts the correction
+                // download; a failed download is logged and swallowed inside
+                // ProvisionAsync itself, same as any other provisioning
+                // failure.
+                if (current.Kind == CorrectionTrayStateKind.Missing)
+                {
+                    var provisioner = services.GetRequiredService<ModelProvisioner>();
+                    await provisioner.ProvisionAsync(provisioningProgress, shutdown.Token);
+                }
+
+                // Failed: the file is there but the load did not succeed.
+                // LlamaPostProcessor.ProbeAsync is not sticky on failure —
+                // see its own doc comment — so calling it again is a real
+                // retry, not a no-op against a permanently stuck gate. Also
+                // reached right after a Missing-branch download succeeds,
+                // which is what actually loads the model for the first time.
+                await postProcessor.ProbeAsync();
+                correctionLoadSettled = true;
+
+                RefreshCorrectionItem(postProcessor, provisioningOptions);
+            };
+
+            // Phase 3 made the startup probe fire-and-forget (StartAsync no
+            // longer awaits it), so RefreshCorrectionItem's call right after
+            // StartPipelineAsync's await usually still shows the pre-load
+            // state. CorrectionAvailabilityChanged is what DictationPipeline
+            // fires once that deferred load actually settles — without this
+            // subscription the item would read "cargando…" forever on
+            // essentially every normal GPU + CorrectVoseo=true launch,
+            // self-correcting only if the user happened to click the item
+            // themselves.
+            var pipeline = services.GetRequiredService<DictationPipeline>();
+            pipeline.CorrectionAvailabilityChanged += () =>
+            {
+                correctionLoadSettled = true;
+                RefreshCorrectionItem(postProcessor, provisioningOptions);
+            };
+
+            RefreshCorrectionItem(postProcessor, provisioningOptions);
+        }
 
         var quit = new NativeMenuItem("Salir");
         quit.Click += (_, _) =>
@@ -325,9 +390,15 @@ public partial class App : Application
         };
 
         RefreshCharacterItem();
-        RefreshOllamaItem(postProcessor);
 
-        return [open, characterItem, bringCharacterToFront, ollamaItem, new NativeMenuItemSeparator(), quit];
+        var menu = new NativeMenu { open, characterItem, bringCharacterToFront };
+
+        if (correctionItem is not null) menu.Add(correctionItem);
+
+        menu.Add(new NativeMenuItemSeparator());
+        menu.Add(quit);
+
+        return menu;
     }
 
     /// <summary>
@@ -526,15 +597,22 @@ public partial class App : Application
     /// once the deferred correction-model load it kicked off actually settles — none
     /// of those callers are guaranteed to already be on the UI thread, the same
     /// caution <see cref="BuildTray"/> takes with <c>StateChanged</c>.
+    ///
+    /// The decision itself — which state this is, and what its header says — is
+    /// not made here. It lives in <see cref="CorrectionTrayStates.For"/>, the one
+    /// part of this class that is actually unit tested; this method's own job is
+    /// reduced to gathering the four observable inputs and writing the result
+    /// into the native control.
     /// </summary>
-    private void RefreshOllamaItem(IPostProcessor postProcessor) =>
+    private void RefreshCorrectionItem(IPostProcessor postProcessor, ProvisioningOptions options) =>
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
-            if (ollamaItem is null) return;
+            if (correctionItem is null) return;
 
-            ollamaItem.Header = postProcessor.IsAvailable
-                ? "Ollama: conectado ✓"
-                : "Ollama: no conectado — reconectar";
+            var modelFileExists = options.CorrectionPath is { } path && File.Exists(path);
+            var state = CorrectionTrayStates.For(postProcessor.IsAvailable, modelFileExists, correctionLoadSettled, options.HasGpu);
+
+            correctionItem.Header = state.Header;
         });
 
     /// <summary>
@@ -558,6 +636,8 @@ public partial class App : Application
         // here), which is fine: the CorrectionAvailabilityChanged
         // subscription set up in BuildMenu is what refreshes the item again
         // once the deferred load actually finishes.
-        RefreshOllamaItem(services.GetRequiredService<IPostProcessor>());
+        RefreshCorrectionItem(
+            services.GetRequiredService<IPostProcessor>(),
+            services.GetRequiredService<ProvisioningOptions>());
     }
 }

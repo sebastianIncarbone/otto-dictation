@@ -317,7 +317,16 @@
     </Border>
 
     <!-- Cuerpo: ajustes, notas y primera descarga ocupan el mismo lugar y nunca se
-         ven juntos. Se turnan; ninguno se apila sobre otro. -->
+         ven juntos. Se turnan; ninguno se apila sobre otro.
+
+         La regla está escrita del lado de MainViewModel (IsShowingNotes,
+         IsShowingSettings), no acá: IsProvisioning es la que gana siempre que
+         está prendida, y las otras dos se derivan de ella en vez de que cada
+         IsVisible repita la condición por su cuenta — eso fue justamente lo que
+         faltó para Ajustes y permitió que la descarga y la configuración se
+         mostraran las dos juntas cuando algo ajeno a esta ventana (la bandeja)
+         prendía IsProvisioning en un momento en que el botón que normalmente lo
+         impedía ni siquiera estaba en pantalla. -->
     <Grid>
 
     <!-- Configuración: reemplaza a la lista en vez de desplegarse encima. Es una
@@ -327,8 +336,15 @@
 
          Dentro de un ScrollViewer porque es la pantalla más larga que tiene Otto:
          sin él, en una ventana chica lo último que se ve es "Borrar todos mis
-         datos" cortado al medio. -->
-    <ScrollViewer IsVisible="{Binding IsSettingsOpen}">
+         datos" cortado al medio.
+
+         IsShowingSettings, no IsSettingsOpen a secas: la descarga de la bandeja
+         (reintentar el modelo de corrección) puede prender IsProvisioning en
+         cualquier momento, sin pasar por el botón Ajustes ni por nada que sepa
+         que esta pantalla está abierta. IsShowingSettings es donde vive esa
+         regla — ver su comentario en MainViewModel — así que queda escrita una
+         sola vez y es la misma que un test puede verificar sin este XAML. -->
+    <ScrollViewer IsVisible="{Binding IsShowingSettings}">
       <Border Classes="card" Margin="18,14,18,18">
       <StackPanel Spacing="12">
         <TextBlock Classes="eyebrow" Text="CONFIGURACIÓN" />

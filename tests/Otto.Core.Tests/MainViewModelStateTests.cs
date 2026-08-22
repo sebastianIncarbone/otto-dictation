@@ -173,6 +173,66 @@ public class MainViewModelStateTests
         Assert.False(view.IsShowingNotes);
     }
 
+    /// <summary>
+    /// This is the invariant the tray retry bug broke: a second, independent
+    /// trigger for <see cref="MainViewModel.IsProvisioning"/> (the tray's
+    /// "reintentar" on a missing correction model, wired to the same live
+    /// <c>Progress&lt;ProvisioningStatus&gt;</c> the singleton
+    /// <see cref="MainViewModel"/> was built with) could flip it true at any
+    /// later moment, independent of whatever the window was already showing.
+    /// <see cref="MainViewModel.IsShowingNotes"/> already guarded against this —
+    /// this test is what used to be missing for Ajustes, and would have caught
+    /// the bug: <c>IsSettingsOpen</c> alone controlled the settings panel's
+    /// visibility in <c>MainWindow.axaml</c>, with no dependency on
+    /// <c>IsProvisioning</c>, so the two could render on top of each other.
+    /// </summary>
+    [Fact]
+    public void La_descarga_tapa_los_ajustes_sin_cerrarlos_y_los_ajustes_vuelven_solos()
+    {
+        var view = Build(BuildPipeline());
+
+        view.IsSettingsOpen = true;
+        Assert.True(view.IsShowingSettings);
+
+        // El disparador de la bandeja del sistema — "reintentar" sobre el modelo
+        // de corrección faltante — puede prender IsProvisioning en cualquier
+        // momento, sin pasar por ToggleSettings ni por nada que sepa que Ajustes
+        // está abierto. La pantalla de descarga tiene que ganar...
+        view.IsProvisioning = true;
+        Assert.False(view.IsShowingSettings);
+
+        // ...pero sin destruir lo que el usuario estaba haciendo: IsSettingsOpen
+        // sigue siendo la intención real, no se resetea por detrás.
+        Assert.True(view.IsSettingsOpen);
+
+        // Y cuando la descarga termina, Ajustes reaparece solo, exactamente donde
+        // el usuario lo había dejado — sin un tercer estado ni una reapertura manual.
+        view.IsProvisioning = false;
+        Assert.True(view.IsShowingSettings);
+    }
+
+    /// <summary>
+    /// Triangulates the case above by reaching the same combination from the
+    /// opposite order — <c>IsProvisioning</c> already true when
+    /// <c>IsSettingsOpen</c> is set — so <see cref="MainViewModel.IsShowingSettings"/>
+    /// is proven to be a real AND of current values, not an artifact of one
+    /// property's change hook reacting to a specific transition. In production
+    /// the Ajustes button that sets <c>IsSettingsOpen</c> is itself hidden while
+    /// provisioning, but nothing at the view-model level should depend on that —
+    /// this is the same defense-in-depth reasoning already applied to
+    /// <c>CorrectionTrayStates.For</c>'s <c>hasGpu</c> guard.
+    /// </summary>
+    [Fact]
+    public void Los_ajustes_no_se_muestran_si_se_abren_mientras_la_descarga_ya_esta_en_curso()
+    {
+        var view = Build(BuildPipeline());
+
+        view.IsProvisioning = true;
+        view.IsSettingsOpen = true;
+
+        Assert.False(view.IsShowingSettings);
+    }
+
     [Fact]
     public void Con_una_busqueda_activa_no_hay_invitacion_ni_dibujo()
     {
