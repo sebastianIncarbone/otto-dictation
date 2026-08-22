@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Otto.Bench;
+using Otto.PostProcessing;
 using Otto.Speech;
 
 // Milestone 0 harness. Records a fixed set of utterances once, then measures every
@@ -165,23 +166,27 @@ async Task RunDownloadTestAsync()
 // Milestone 4: which local model can fix the voseo without rewriting the dictation.
 // Transcribes once, then feeds that same text to every candidate, so the only
 // variable is the corrector.
+//
+// Points at the exact ICorrectionEngine/LlamaEngine stack Otto.PostProcessing ships
+// in production, so this measures what users actually get rather than a stand-in
+// HTTP client. Ollama is gone from the product: there is nothing left to probe or
+// list installed models from, so --models now takes GGUF file names inside
+// modelsDir instead of Ollama tags, and defaults to the one model Otto ships.
 async Task RunVoseoAsync()
 {
-    using var ollama = new Ollama();
-
-    if (!await ollama.IsAvailableAsync())
-    {
-        Console.WriteLine("Ollama no responde en localhost:11434.");
-        return;
-    }
+    const string CorrectionModelFileName = "qwen2.5-3b-instruct-q4_k_m.gguf";
 
     var candidates = Flag("--models")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                     ?? [.. await ollama.ModelsAsync()];
+                     ?? [CorrectionModelFileName];
 
     Console.WriteLine($"Modelos a probar: {string.Join(", ", candidates)}");
     Console.WriteLine();
 
     Benchmark.ConfigureRuntime(Flag("--runtime") ?? "vulkan");
+
+    using var loggerFactory = LoggerFactory.Create(b => b
+        .AddSimpleConsole(o => o.SingleLine = true)
+        .SetMinimumLevel(LogLevel.Information));
 
     using var benchmark = new Benchmark(clipsDir, modelsDir, useVad: true);
     var speech = Models.Resolve("large-v3-turbo").First();
@@ -195,6 +200,43 @@ async Task RunVoseoAsync()
     foreach (var model in candidates)
     {
         Console.WriteLine($"  {model}");
+
+        var modelPath = Path.Combine(modelsDir, model);
+
+        if (!File.Exists(modelPath))
+        {
+            Console.WriteLine($"    no está en {modelPath}.");
+            Console.WriteLine("    Copiá el GGUF desde %LOCALAPPDATA%\\Otto\\models\\ (si ya instalaste Otto)");
+            Console.WriteLine("    o descargalo de https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF");
+            continue;
+        }
+
+        using var engine = new LlamaEngine(
+            new PostProcessingOptions { ModelPath = modelPath },
+            loggerFactory.CreateLogger<LlamaEngine>());
+
+        try
+        {
+            await engine.LoadAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            // LlamaEngine.LoadAsync guards against reconfiguring an already-loaded
+            // NativeLibraryConfig, so this should no longer fire even across
+            // several candidates in this same process — kept as a distinct branch
+            // so a regression of THAT guard is reported as what it is (an engine
+            // that could not be configured) instead of masquerading as a missing
+            // or corrupt GGUF, which is exactly the failure this loop used to
+            // silently mislabel every candidate after the first as.
+            Console.WriteLine($"    no se pudo configurar el motor: {ex.Message}");
+            continue;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"    el GGUF no cargó (¿falta o está corrupto?): {ex.Message}");
+            continue;
+        }
+
         var results = new List<VoseoResult>();
 
         foreach (var clip in transcribed.Clips.Where(c => !c.Clip.ExpectsSilence))
@@ -204,9 +246,7 @@ async Task RunVoseoAsync()
             string corrected;
             try
             {
-                corrected = args.Contains("--prompt-viejo")
-                    ? await ollama.GenerateAsync(model, Voseo.Prompt(clip.Text))
-                    : await ollama.ChatAsync(model, Voseo.Messages(clip.Text));
+                corrected = await engine.ChatAsync(Voseo.Messages(clip.Text));
             }
             catch (Exception ex)
             {

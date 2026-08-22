@@ -80,8 +80,8 @@ public sealed class LlamaPostProcessor : IPostProcessor, IDisposable
             // IsAvailable flips only AFTER warm-up returns — including when its
             // own failure is swallowed inside WarmUpAsync — not right after
             // LoadAsync. ProcessAsync's only gate is IsAvailable, and the engine's
-            // InteractiveExecutor/LLamaContext is not reentrant: flipping it early
-            // let a dictation land in this exact window and call ChatAsync
+            // native executor is not reentrant: flipping it early let a
+            // dictation land in this exact window and call ChatAsync
             // concurrently with warm-up's own in-flight ChatAsync against the
             // SAME native handle. With Ollama this was harmless — independent
             // HTTP requests — but in-process it was a real race.
