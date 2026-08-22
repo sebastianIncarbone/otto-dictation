@@ -66,6 +66,15 @@ internal static class Program
             VadFileName = "silero-vad.bin",
             Label = speechModel,
             Size = speechSize,
+
+            // Same probe, same reasoning as the speech model above: a 3B
+            // correction model can never fit inside the 2s dictation budget on
+            // CPU, so ModelProvisioner skips the leg entirely there rather than
+            // downloading ~2 GB nobody can use. The correction file/URL/label/
+            // size coordinates themselves are still unset here — wiring the real
+            // GGUF coordinates in is a later phase's job, alongside the DI swap
+            // to LlamaPostProcessor.
+            HasGpu = acceleration == Acceleration.Gpu,
         };
 
         var settingsStore = new SettingsStore(SettingsStore.DefaultPath);

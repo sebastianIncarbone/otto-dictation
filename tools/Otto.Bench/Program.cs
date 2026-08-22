@@ -101,6 +101,11 @@ async Task RunBenchAsync()
 // looks identical to working correctly until you watch the byte count.
 async Task RunDownloadTestAsync()
 {
+    // DownloadAsync takes an absolute URL now (ModelDownloader no longer hardcodes
+    // whisper.cpp's repo), so this harness composes it itself instead of relying on
+    // a base URL baked into the downloader.
+    const string url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin";
+
     var dir = Path.Combine(Path.GetTempPath(), "otto-descarga-test");
     Directory.CreateDirectory(dir);
 
@@ -127,7 +132,7 @@ async Task RunDownloadTestAsync()
 
         try
         {
-            await downloader.DownloadAsync("ggml-base.bin", destination, progress, cancel.Token);
+            await downloader.DownloadAsync(url, destination, progress, cancel.Token);
         }
         catch (OperationCanceledException)
         {
@@ -143,7 +148,7 @@ async Task RunDownloadTestAsync()
     Console.WriteLine("=== intento 2: tiene que continuar, no empezar de cero ===");
 
     using (var downloader = new ModelDownloader(log))
-        await downloader.DownloadAsync("ggml-base.bin", destination, null);
+        await downloader.DownloadAsync(url, destination, null);
 
     var final = new FileInfo(destination).Length;
 

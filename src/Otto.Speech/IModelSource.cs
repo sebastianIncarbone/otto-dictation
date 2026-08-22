@@ -3,13 +3,15 @@ using Whisper.net.Ggml;
 
 namespace Otto.Speech;
 
-public enum ProvisioningState { Idle, DownloadingSpeech, PreparingVad, Ready, Failed }
+// DownloadingCorrection sits after PreparingVad and before Ready/Failed: the
+// correction leg is fetched last, once Otto is already usable on Whisper alone.
+public enum ProvisioningState { Idle, DownloadingSpeech, PreparingVad, DownloadingCorrection, Ready, Failed }
 
 /// <summary>Progress is null except while a leg is transferring.</summary>
 public sealed record ProvisioningStatus(ProvisioningState State, DownloadProgress? Progress = null);
 
 /// <summary>
-/// Where the two model files come from. Split out so the provisioning state machine
+/// Where the model files come from. Split out so the provisioning state machine
 /// is exercisable without a network: the adapter is obliged to leave a resumable
 /// partial behind on failure, and to move the final file into place only once the
 /// transfer is complete.
@@ -20,6 +22,16 @@ public interface IModelSource
         IProgress<DownloadProgress>? progress, CancellationToken cancellationToken = default);
 
     Task FetchVadAsync(string destination, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Fetches an arbitrary file from an absolute <paramref name="url"/>, resumably.
+    /// Generalizes <see cref="FetchSpeechAsync"/>'s machinery for callers — today
+    /// only the correction GGUF — that come from a host this implementer has no
+    /// built-in knowledge of, so the caller supplies the full address rather than
+    /// a bare file name.
+    /// </summary>
+    Task FetchAsync(string url, string destination,
+        IProgress<DownloadProgress>? progress, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -31,11 +43,17 @@ public interface IModelSource
 /// </summary>
 public sealed class HuggingFaceModelSource(ILogger<ModelDownloader> log) : IModelSource
 {
-    public async Task FetchSpeechAsync(string fileName, string destination,
+    private const string WhisperBaseUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/";
+
+    public Task FetchSpeechAsync(string fileName, string destination,
+        IProgress<DownloadProgress>? progress, CancellationToken cancellationToken = default) =>
+        FetchAsync(WhisperBaseUrl + fileName, destination, progress, cancellationToken);
+
+    public async Task FetchAsync(string url, string destination,
         IProgress<DownloadProgress>? progress, CancellationToken cancellationToken = default)
     {
         using var downloader = new ModelDownloader(log);
-        await downloader.DownloadAsync(fileName, destination, progress, cancellationToken);
+        await downloader.DownloadAsync(url, destination, progress, cancellationToken);
     }
 
     public async Task FetchVadAsync(string destination, CancellationToken cancellationToken = default)
