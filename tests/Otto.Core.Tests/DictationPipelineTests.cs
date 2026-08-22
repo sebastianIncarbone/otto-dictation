@@ -200,6 +200,7 @@ public class DictationPipelineTests
         // output the moment StartAsync returns.
         var releaseProbe = new TaskCompletionSource();
         var postProcessor = Substitute.For<IPostProcessor>();
+        postProcessor.Enabled.Returns(true);
         postProcessor.ProbeAsync(Arg.Any<CancellationToken>()).Returns(async _ =>
         {
             await releaseProbe.Task;
@@ -222,6 +223,7 @@ public class DictationPipelineTests
     {
         var releaseProbe = new TaskCompletionSource();
         var postProcessor = Substitute.For<IPostProcessor>();
+        postProcessor.Enabled.Returns(true);
         postProcessor.ProbeAsync(Arg.Any<CancellationToken>()).Returns(async _ =>
         {
             await releaseProbe.Task;
@@ -245,6 +247,32 @@ public class DictationPipelineTests
 
         Assert.True(fired);
         await postProcessor.Received(1).ProbeAsync(Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// The exact fix for a startup trap: IPostProcessor is now ALWAYS the real
+    /// LlamaPostProcessor on GPU hardware, regardless of Settings.CorrectVoseo
+    /// — otherwise the correction toggle could never be turned on at runtime
+    /// after starting off. That decoupling only works if StartAsync itself
+    /// never loads a ~2 GB model into VRAM for a feature the user has
+    /// switched off — Enabled is the live signal for that, read fresh at
+    /// startup rather than baked into which IPostProcessor got constructed.
+    /// </summary>
+    [Fact]
+    public async Task La_carga_diferida_no_arranca_si_el_post_processor_esta_deshabilitado()
+    {
+        var postProcessor = Substitute.For<IPostProcessor>();
+        postProcessor.Enabled.Returns(false);
+
+        using var pipeline = Build(postProcessor);
+
+        await pipeline.StartAsync(HotkeyBinding.Default);
+
+        // A little slack for the fire-and-forget LoadCorrectorAsync to run —
+        // it should find nothing to do and return immediately either way.
+        await Task.Delay(30);
+
+        await postProcessor.DidNotReceive().ProbeAsync(Arg.Any<CancellationToken>());
     }
 
     [Fact]

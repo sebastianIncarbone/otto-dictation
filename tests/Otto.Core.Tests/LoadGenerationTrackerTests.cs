@@ -113,4 +113,83 @@ public class LoadGenerationTrackerTests
 
         Assert.Equal(1, disposeCalls);
     }
+
+    // ---- Unload: the reversible half of Dispose, for the idle-unload timer
+    // and the runtime correction on/off toggle. Frees whatever is currently
+    // published AND orphans any load still in flight, exactly like Dispose —
+    // but does NOT mark the tracker permanently disposed, so a LATER
+    // LoadAsync can ClaimGeneration and publish again.
+
+    [Fact]
+    public void Unload_libera_lo_publicado_actualmente()
+    {
+        var tracker = new LoadGenerationTracker();
+        var attempt = tracker.ClaimGeneration();
+        tracker.TryPublish(attempt, publish: () => { }, discard: () => throw new InvalidOperationException());
+
+        var unloaded = false;
+        tracker.Unload(disposeCurrent: () => unloaded = true);
+
+        Assert.True(unloaded);
+    }
+
+    /// <summary>
+    /// The exact race UnloadAsync introduces on top of the existing
+    /// Dispose-vs-orphan one: a reload's own in-flight LoadAsync attempt
+    /// must NOT be allowed to resurrect handles an unload just freed.
+    /// Models: idle timer fires and calls Unload while a PREVIOUS LoadAsync
+    /// (started before the unload, still blocked on the native call
+    /// CancelableWork could not truly cancel) has not returned yet — when it
+    /// finally does, its TryPublish must discard rather than publish.
+    /// </summary>
+    [Fact]
+    public void Unload_descarta_un_intento_de_carga_todavia_en_vuelo()
+    {
+        var tracker = new LoadGenerationTracker();
+        var orphanedAttempt = tracker.ClaimGeneration();
+
+        tracker.Unload(disposeCurrent: () => { });
+
+        var published = false;
+        var discarded = false;
+        var result = tracker.TryPublish(orphanedAttempt, publish: () => published = true, discard: () => discarded = true);
+
+        Assert.False(result);
+        Assert.False(published);
+        Assert.True(discarded);
+    }
+
+    /// <summary>
+    /// Unlike Dispose, Unload does NOT retire the tracker — the whole point
+    /// is that the SAME instance can load again afterward, the same instance
+    /// LlamaEngine keeps for the life of the process.
+    /// </summary>
+    [Fact]
+    public void Una_carga_despues_de_un_unload_publica_normalmente()
+    {
+        var tracker = new LoadGenerationTracker();
+        var first = tracker.ClaimGeneration();
+        tracker.TryPublish(first, publish: () => { }, discard: () => throw new InvalidOperationException());
+
+        tracker.Unload(disposeCurrent: () => { });
+
+        var reload = tracker.ClaimGeneration();
+        var published = false;
+        var result = tracker.TryPublish(reload, publish: () => published = true, discard: () => throw new InvalidOperationException());
+
+        Assert.True(result);
+        Assert.True(published);
+    }
+
+    [Fact]
+    public void Unload_no_hace_nada_si_el_tracker_ya_esta_disposed()
+    {
+        var tracker = new LoadGenerationTracker();
+        tracker.Dispose(disposeCurrent: () => { });
+
+        var unloaded = false;
+        tracker.Unload(disposeCurrent: () => unloaded = true);
+
+        Assert.False(unloaded);
+    }
 }

@@ -22,10 +22,16 @@ public partial class App : Application
 
     /// <summary>
     /// Whether a correction-model load attempt — the deferred one
-    /// <see cref="DictationPipeline.StartAsync"/> kicks off, or a manual
-    /// "reintentar" click — has settled at least once. Before the first one
+    /// <see cref="DictationPipeline.StartAsync"/> kicks off, a manual
+    /// "reintentar" click, or <see cref="SetCorrectionEnabled"/> turning
+    /// correction back on — has settled at least once. Before the first one
     /// settles, <see cref="CorrectionTrayStates.For"/> cannot yet tell "still
-    /// loading" from "failed", so the item reads as Loading instead of guessing.
+    /// loading" from "failed", so the item reads as Loading instead of
+    /// guessing. <see cref="SetCorrectionEnabled"/> clears this back to false
+    /// right before starting a fresh enable, specifically so a live refresh
+    /// from <see cref="IPostProcessor.AvailabilityChanged"/> landing mid-load
+    /// cannot read a stale "settled" value left over from a PREVIOUS attempt
+    /// and misreport a load that has not even started yet as Failed.
     /// </summary>
     private bool correctionLoadSettled;
 
@@ -83,7 +89,15 @@ public partial class App : Application
                 Avalonia.Threading.Dispatcher.UIThread.Post(ShowWindow);
 
             var provisioner = services.GetRequiredService<ModelProvisioner>();
-            var needsProvisioning = provisioner.NeedsProvisioning;
+
+            // IPostProcessor.Enabled, not services.GetRequiredService<Settings>().CorrectVoseo:
+            // the Settings DI singleton is a startup snapshot that a runtime toggle
+            // never refreshes (see MainViewModel.OfferKey's own comment on the exact
+            // same trap), while IPostProcessor.Enabled is the live value by
+            // construction. They agree at this exact point in startup — nothing has
+            // had a chance to toggle anything yet — but reading the live one is what
+            // keeps this call site correct if that ever changes.
+            var needsProvisioning = provisioner.NeedsProvisioning(services.GetRequiredService<IPostProcessor>().Enabled);
 
             // Progress<T> captures the ambient SynchronizationContext at
             // construction, not at the point it starts reporting — and this method
@@ -208,7 +222,8 @@ public partial class App : Application
             }
 
             var provisioner = services.GetRequiredService<ModelProvisioner>();
-            var result = await provisioner.ProvisionAsync(progress, shutdown.Token);
+            var result = await provisioner.ProvisionAsync(
+                services.GetRequiredService<IPostProcessor>().Enabled, progress, shutdown.Token);
 
             if (result == ProvisioningState.Ready) await StartPipelineAsync();
         }
@@ -301,28 +316,34 @@ public partial class App : Application
         var postProcessor = services.GetRequiredService<IPostProcessor>();
         var provisioningOptions = services.GetRequiredService<ProvisioningOptions>();
 
-        // Hidden entirely when the feature is off, and equally hidden on
-        // CPU-only hardware — a 3B model can never load inside the 2s
-        // dictation budget there (see ProvisioningOptions.HasGpu's own doc
-        // comment, and CorrectionCoordinates, which already skips
-        // downloading the GGUF on that hardware). There is nothing to report
-        // on a corrector that was never asked to load and never could be:
-        // the same "reintentar" that recovers Missing/Failed elsewhere would
-        // be a button that can never succeed here, which is worse than no
-        // button at all. CorrectionTrayStates.For enforces the same
-        // guarantee independently (CorrectionTrayStateKind.Unsupported can
-        // never have CanRetry: true) — this check is what keeps the item off
-        // the menu entirely rather than showing that state. ProvisioningOptions
-        // is built from the startup snapshot (see its own doc comment on
-        // CorrectVoseo/HasGpu), so neither input changes under this check
-        // without a relaunch.
-        if (services.GetRequiredService<Settings>().CorrectVoseo && provisioningOptions.HasGpu)
+        // Hidden only on CPU-only hardware now — a 3B model can never load
+        // inside the 2s dictation budget there (see ProvisioningOptions.HasGpu's
+        // own doc comment, and CorrectionCoordinates, which already skips
+        // downloading the GGUF on that hardware). There is nothing to report on
+        // a corrector that was never asked to load and never could be: a click
+        // that can never succeed is worse than no button at all.
+        // CorrectionTrayStates.For enforces the same guarantee independently
+        // (CorrectionTrayStateKind.Unsupported can never have CanRetry: true) —
+        // this check is what keeps the item off the menu entirely rather than
+        // showing that state.
+        //
+        // Settings.CorrectVoseo is deliberately NOT part of this check anymore:
+        // the whole point of the runtime toggle is that the item has to stay on
+        // the menu (as CorrectionTrayStateKind.Off) so a user who is currently
+        // off can turn correction back on from here — see CorrectionTrayStates'
+        // own doc comment on why Off exists.
+        if (provisioningOptions.HasGpu)
         {
-            // There is no "reconnect" here — an in-process model has no
-            // connection to lose. One "reintentar" action covers both
-            // recoverable states (see CorrectionTrayStates): Missing
-            // re-provisions the GGUF, Failed just reloads it. Ready and
-            // Loading are no-ops on click.
+            // No "reconnect" here either — an in-process model has no
+            // connection to lose. The click handler is a genuine two-way
+            // toggle now, mirroring characterItem's own raw toggle above:
+            // Off turns correction on (provisioning the GGUF first if it is
+            // not there yet — CorrectVoseo can switch on at runtime even when
+            // the model was never downloaded, see ProvisioningOptions.CorrectionCoordinates'
+            // own doc comment), Ready/Loading turn it off, and Missing/Failed
+            // keep their existing "reintentar" recovery untouched — the user
+            // already wants correction on in those states, so clicking means
+            // "try again", not "give up".
             correctionItem = new NativeMenuItem();
             correctionItem.Click += async (_, _) =>
             {
@@ -330,32 +351,56 @@ public partial class App : Application
                     postProcessor.IsAvailable,
                     provisioningOptions.CorrectionPath is { } path && File.Exists(path),
                     correctionLoadSettled,
-                    provisioningOptions.HasGpu);
+                    provisioningOptions.HasGpu,
+                    postProcessor.Enabled,
+                    postProcessor.IdleUnloaded);
 
-                if (!current.CanRetry) return;
-
-                // Missing: the GGUF itself is not on disk. ModelProvisioner
-                // skips the speech/VAD legs (already present, or this item
-                // would not exist yet) and only attempts the correction
-                // download; a failed download is logged and swallowed inside
-                // ProvisionAsync itself, same as any other provisioning
-                // failure.
-                if (current.Kind == CorrectionTrayStateKind.Missing)
+                switch (current.Kind)
                 {
-                    var provisioner = services.GetRequiredService<ModelProvisioner>();
-                    await provisioner.ProvisionAsync(provisioningProgress, shutdown.Token);
+                    case CorrectionTrayStateKind.Off:
+                        SetCorrectionEnabled(true);
+                        break;
+
+                    case CorrectionTrayStateKind.Ready:
+                    case CorrectionTrayStateKind.Loading:
+                    case CorrectionTrayStateKind.Idle:
+                        SetCorrectionEnabled(false);
+                        break;
+
+                    case CorrectionTrayStateKind.Missing:
+                    case CorrectionTrayStateKind.Failed:
+                        if (!current.CanRetry) break;
+
+                        // Missing: the GGUF itself is not on disk.
+                        // ModelProvisioner skips the speech/VAD legs (already
+                        // present, or this item would not exist yet) and only
+                        // attempts the correction download; a failed
+                        // download is logged and swallowed inside
+                        // ProvisionAsync itself, same as any other
+                        // provisioning failure.
+                        if (current.Kind == CorrectionTrayStateKind.Missing)
+                        {
+                            var provisioner = services.GetRequiredService<ModelProvisioner>();
+                            await provisioner.ProvisionAsync(correctionEnabled: true, provisioningProgress, shutdown.Token);
+                        }
+
+                        // Failed: the file is there but the load did not
+                        // succeed. LlamaPostProcessor.ProbeAsync is not
+                        // sticky on failure — see its own doc comment — so
+                        // calling it again is a real retry, not a no-op
+                        // against a permanently stuck gate. Also reached
+                        // right after a Missing-branch download succeeds,
+                        // which is what actually loads the model for the
+                        // first time.
+                        await postProcessor.ProbeAsync();
+                        correctionLoadSettled = true;
+
+                        RefreshCorrectionItem(postProcessor, provisioningOptions);
+                        break;
+
+                    case CorrectionTrayStateKind.Unsupported:
+                        break;
                 }
-
-                // Failed: the file is there but the load did not succeed.
-                // LlamaPostProcessor.ProbeAsync is not sticky on failure —
-                // see its own doc comment — so calling it again is a real
-                // retry, not a no-op against a permanently stuck gate. Also
-                // reached right after a Missing-branch download succeeds,
-                // which is what actually loads the model for the first time.
-                await postProcessor.ProbeAsync();
-                correctionLoadSettled = true;
-
-                RefreshCorrectionItem(postProcessor, provisioningOptions);
             };
 
             // Phase 3 made the startup probe fire-and-forget (StartAsync no
@@ -366,13 +411,36 @@ public partial class App : Application
             // subscription the item would read "cargando…" forever on
             // essentially every normal GPU + CorrectVoseo=true launch,
             // self-correcting only if the user happened to click the item
-            // themselves.
+            // themselves. Startup-only and fires at most once per process —
+            // correctionLoadSettled only needs to become true here, never
+            // false again, which is exactly what makes a single non-removed
+            // subscription the right shape for it.
             var pipeline = services.GetRequiredService<DictationPipeline>();
             pipeline.CorrectionAvailabilityChanged += () =>
             {
                 correctionLoadSettled = true;
                 RefreshCorrectionItem(postProcessor, provisioningOptions);
             };
+
+            // Fixes the same class of staleness one layer further out: the
+            // pipeline event above only ever covers the ONE startup load.
+            // Everything that can happen to the corrector afterward — the
+            // idle timer unloading it, the background reload that follows,
+            // a manual tray/Settings toggle — changes IPostProcessor.IsAvailable/
+            // Enabled/IdleUnloaded without going through DictationPipeline at
+            // all, so nothing used to tell this menu item to catch up; it kept
+            // showing whatever it last showed, including "Corrección: activa ✓"
+            // for a model that had since been silently unloaded. postProcessor
+            // itself now raises AvailabilityChanged for exactly those
+            // transitions (see IPostProcessor's own doc comment on when it
+            // does — and, just as deliberately, does not — fire), and
+            // RefreshCorrectionItem already marshals to the UI thread on its
+            // own, so this handler does not need to. Subscribed exactly once,
+            // here, for the lifetime of the process — BuildMenu itself only
+            // ever runs once (from SetUpTray, itself called once from
+            // OnFrameworkInitializationCompleted), so there is no double-
+            // subscribe or leak risk to guard against separately.
+            postProcessor.AvailabilityChanged += () => RefreshCorrectionItem(postProcessor, provisioningOptions);
 
             RefreshCorrectionItem(postProcessor, provisioningOptions);
         }
@@ -438,6 +506,18 @@ public partial class App : Application
             // telling the tray what the user just chose.
             view.CharacterVisibilityChanged += visible => SetCharacterVisible(visible, persist: false);
             view.CharacterAppearanceChanged += SetCharacterAppearance;
+
+            // Same two-owner shape again: SaveSettings already wrote
+            // CorrectVoseo/CorrectionIdleUnloadMinutes to disk as part of the
+            // same save, so persist: false here for the same reason
+            // CharacterVisibilityChanged's handler above does — a second
+            // writer is how the character switch nearly became an infinite
+            // bounce between its two owners, and this is the same switch
+            // shape one field over.
+            view.CorrectVoseoChanged += enabled => SetCorrectionEnabled(enabled, persist: false);
+            view.CorrectionIdleUnloadMinutesChanged += minutes =>
+                services.GetRequiredService<IPostProcessor>().SetIdleTimeout(
+                    minutes > 0 ? TimeSpan.FromMinutes(minutes) : null);
 
             // Reintentar re-enters the same sequencing method retry went through
             // the first time, so success after a retry starts the pipeline through
@@ -593,15 +673,19 @@ public partial class App : Application
     /// <summary>
     /// Posted rather than set directly: called from the click handler (already on
     /// the UI thread), from <see cref="StartPipelineAsync"/> right after
-    /// <c>StartAsync</c> returns, and from <see cref="DictationPipeline.CorrectionAvailabilityChanged"/>
-    /// once the deferred correction-model load it kicked off actually settles — none
-    /// of those callers are guaranteed to already be on the UI thread, the same
-    /// caution <see cref="BuildTray"/> takes with <c>StateChanged</c>.
+    /// <c>StartAsync</c> returns, from <see cref="DictationPipeline.CorrectionAvailabilityChanged"/>
+    /// once the deferred correction-model load it kicked off actually settles, and
+    /// from <see cref="IPostProcessor.AvailabilityChanged"/> for every transition
+    /// after that — an idle unload, the background reload that follows it, a
+    /// manual toggle. None of those callers are guaranteed to already be on the
+    /// UI thread; the idle timer and a background reload in particular fire from
+    /// a timer callback and a detached Task, the same caution <see cref="BuildTray"/>
+    /// takes with <c>StateChanged</c>.
     ///
     /// The decision itself — which state this is, and what its header says — is
     /// not made here. It lives in <see cref="CorrectionTrayStates.For"/>, the one
     /// part of this class that is actually unit tested; this method's own job is
-    /// reduced to gathering the four observable inputs and writing the result
+    /// reduced to gathering the five observable inputs and writing the result
     /// into the native control.
     /// </summary>
     private void RefreshCorrectionItem(IPostProcessor postProcessor, ProvisioningOptions options) =>
@@ -610,10 +694,123 @@ public partial class App : Application
             if (correctionItem is null) return;
 
             var modelFileExists = options.CorrectionPath is { } path && File.Exists(path);
-            var state = CorrectionTrayStates.For(postProcessor.IsAvailable, modelFileExists, correctionLoadSettled, options.HasGpu);
+            var state = CorrectionTrayStates.For(
+                postProcessor.IsAvailable, modelFileExists, correctionLoadSettled, options.HasGpu,
+                postProcessor.Enabled, postProcessor.IdleUnloaded);
 
             correctionItem.Header = state.Header;
         });
+
+    /// <summary>
+    /// Turns correction on or off — what the tray toggle and the Settings
+    /// checkbox both call, mirroring <see cref="SetCharacterVisible"/>'s own
+    /// two-owner shape exactly: the tray toggles and persists, the settings
+    /// window raises an event and lets this method apply it without
+    /// persisting again (<c>MainViewModel.SaveSettings</c> already wrote
+    /// <c>CorrectVoseo</c> as part of the same save).
+    ///
+    /// Enabling may need to provision the GGUF first: <c>CorrectVoseo</c>
+    /// can now switch on at runtime even when the model was never
+    /// downloaded — started off, or an upgrade from an install that never
+    /// fetched the correction leg — and <c>ProvisioningOptions</c> always
+    /// carries real coordinates on GPU hardware now (see
+    /// <c>ProvisioningOptions.CorrectionCoordinates</c>' own doc comment),
+    /// so <c>ModelProvisioner.ProvisionAsync</c> always has something to
+    /// fetch. A failed download degrades to raw text exactly like a failed
+    /// load already does — never a crash.
+    ///
+    /// <c>async void</c> to match its two callers: a tray click handler and
+    /// a view-model event, neither of which has anything to await this
+    /// against. Both already accept that shape for the Missing/Failed retry
+    /// path above, which awaits just as much before refreshing.
+    ///
+    /// <para>
+    /// This method has no reentrancy guard, and round 2 made the tray item
+    /// clickable in more states — Ready/Loading/Idle now route to a click
+    /// same as Off does — so it CAN run several times concurrently: a
+    /// previous call's own <c>await ... SetEnabledAsync</c> can still be
+    /// queued behind <c>LlamaPostProcessor</c>'s gate when a new click
+    /// starts a second call. That gate is a plain <c>SemaphoreSlim</c>,
+    /// which gives no waiter-ordering guarantee, so N concurrent calls'
+    /// awaits can resume in any order — NOT necessarily the order the
+    /// clicks happened in. Persisting/reflecting this call's own closure-
+    /// captured <paramref name="enabled"/> once its await resumes used to
+    /// mean whichever call happened to resume LAST won the disk write, even
+    /// if an intervening click had already asked for something else — the
+    /// wrong value could then survive a relaunch. <see cref="CorrectionToggleCoordinator.ToggleAsync"/>
+    /// is what closes that: it returns the LIVE <c>IPostProcessor.Enabled</c>
+    /// once the toggle settles, not the value the call started with — and
+    /// because that property only ever holds one value, every racing call's
+    /// tail ends up persisting the identical, correct answer regardless of
+    /// completion order. See its own doc comment for the full argument, and
+    /// <c>CorrectionToggleCoordinatorTests</c> for the race pinned under
+    /// test.
+    /// </para>
+    /// </summary>
+    private async void SetCorrectionEnabled(bool enabled, bool persist = true)
+    {
+        var postProcessor = services.GetRequiredService<IPostProcessor>();
+        var provisioningOptions = services.GetRequiredService<ProvisioningOptions>();
+
+        // correctionLoadSettled otherwise stays permanently true from the very
+        // first startup settle onward (nothing else ever clears it) — fine
+        // right up until postProcessor.AvailabilityChanged starts refreshing
+        // the item live (see the subscription in BuildMenu). Enabling flips
+        // IPostProcessor.Enabled synchronously, inside SetEnabledAsync, BEFORE
+        // its own ProbeAsync has even started — a live refresh landing at that
+        // exact instant would otherwise read "the file is there, a load
+        // settled a while ago, and it is still not available" and show
+        // Failed ("no se pudo cargar — reintentar") for a load that has not
+        // even begun yet. Cleared only for enabling: disabling always reads
+        // as Off regardless of this flag (CorrectionTrayStates.For checks
+        // correctVoseo ahead of deferredLoadSettled), so touching it there
+        // would be a no-op dressed up as a fix.
+        if (enabled) correctionLoadSettled = false;
+
+        if (enabled && provisioningOptions.CorrectionPath is { } path && !File.Exists(path))
+        {
+            // provisioningProgress is only built eagerly in OnFrameworkInitializationCompleted
+            // when SOMETHING needed provisioning at startup — on the ordinary
+            // steady-state launch (nothing missing) it is still null here,
+            // because resolving MainViewModel just to have a Progress<T> on
+            // hand costs something on every normal launch, and this is the
+            // one path that can reach a download without ever having gone
+            // through that block. Built lazily instead, the first time it is
+            // actually needed, and cached in the same field so a later call
+            // — another toggle, Reintentar — reuses it. Safe to construct
+            // here: like the eager path, this method only ever runs on the
+            // UI thread (a tray click, or MainViewModel.SaveSettings via
+            // CorrectVoseoChanged), which is what Progress<T> needs to
+            // capture the right SynchronizationContext.
+            provisioningProgress ??= new Progress<ProvisioningStatus>(status =>
+            {
+                services.GetRequiredService<MainViewModel>().Apply(status);
+                UpdateProvisioningTooltip(status);
+            });
+
+            var provisioner = services.GetRequiredService<ModelProvisioner>();
+            await provisioner.ProvisionAsync(correctionEnabled: true, provisioningProgress, shutdown.Token);
+        }
+
+        // settled, not enabled: see the doc comment above on why the tail
+        // below must read the live IPostProcessor.Enabled once the toggle
+        // resumes, rather than the enabled parameter this call started with.
+        var settled = await CorrectionToggleCoordinator.ToggleAsync(postProcessor, enabled, shutdown.Token);
+        correctionLoadSettled = true;
+
+        RefreshCorrectionItem(postProcessor, provisioningOptions);
+
+        if (!persist) return;
+
+        // Amended rather than rebuilt, so toggling from the tray cannot reset a
+        // setting this menu knows nothing about.
+        var store = services.GetRequiredService<SettingsStore>();
+        store.Save(store.Load() with { CorrectVoseo = settled });
+
+        // The settings window offers the same switch. If it is already built, its
+        // checkbox has to agree with what the tray just did.
+        services.GetRequiredService<MainViewModel>().ReflectCorrectVoseo(settled);
+    }
 
     /// <summary>
     /// Awaited now, not fired-and-forgotten: a registration failure has to reach

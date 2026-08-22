@@ -144,7 +144,14 @@ la primera ejecución, si tu máquina tiene GPU, Otto baja un modelo local chico
 **La corrección necesita GPU.** Un modelo de 3B no llega a responder dentro del presupuesto de
 ~2 s por dictado en CPU, así que en una máquina sin GPU el modelo nunca se descarga, nunca se
 carga, y la opción no hace nada — Otto simplemente usa la salida cruda de Whisper. También
-podés apagar la corrección vos mismo, desde la configuración.
+podés apagar la corrección vos mismo, desde la configuración o desde la bandeja, y ahí mismo
+se descarga el modelo y te devuelve la VRAM.
+
+**Y se corre solo cuando no lo usás.** Tener un modelo de 3B residente cuesta unos 2 GB de
+VRAM, que es bastante para estar ocupando mientras no dictás — así que a los 15 minutos sin
+uso Otto lo descarga. El dictado siguiente sale sin corregir y dispara la recarga en segundo
+plano; el que viene después ya sale corregido. Ese intercambio es configurable desde la
+configuración, incluso apagarlo para que el modelo se quede cargado.
 
 Una corrección que sale mal nunca es peor que no corregir: `EditGuard` descarta cualquier
 resultado que reescriba demasiado la frase, y va la transcripción cruda en su lugar — ver

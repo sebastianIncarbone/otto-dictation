@@ -31,4 +31,18 @@ public static class CancelableWork
 
         return cancellationToken.CanBeCanceled ? task.WaitAsync(cancellationToken) : task;
     }
+
+    /// <summary>
+    /// Generic counterpart for work that reports back a result —
+    /// <see cref="LlamaEngine.UnloadAsync"/> needs to say whether it actually
+    /// freed the native handles or gave up, the same bounded-caller-wait
+    /// contract as <see cref="Run(Action, CancellationToken)"/>, just with
+    /// something to return once the worker finishes.
+    /// </summary>
+    public static Task<T> Run<T>(Func<T> work, CancellationToken cancellationToken = default)
+    {
+        var task = Task.Run(work, CancellationToken.None);
+
+        return cancellationToken.CanBeCanceled ? task.WaitAsync(cancellationToken) : task;
+    }
 }

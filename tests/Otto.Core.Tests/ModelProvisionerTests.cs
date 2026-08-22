@@ -57,7 +57,7 @@ public sealed class ModelProvisionerTests : IDisposable
     {
         var provisioner = Build(Options());
 
-        Assert.True(provisioner.NeedsProvisioning);
+        Assert.True(provisioner.NeedsProvisioning(correctionEnabled: true));
     }
 
     [Fact]
@@ -69,7 +69,7 @@ public sealed class ModelProvisionerTests : IDisposable
 
         var provisioner = Build(options);
 
-        Assert.False(provisioner.NeedsProvisioning);
+        Assert.False(provisioner.NeedsProvisioning(correctionEnabled: true));
     }
 
     [Fact]
@@ -91,7 +91,7 @@ public sealed class ModelProvisionerTests : IDisposable
         var reported = new List<ProvisioningState>();
         var progress = new RecordingProgress<ProvisioningStatus>(s => reported.Add(s.State));
 
-        var result = await Build(options).ProvisionAsync(progress);
+        var result = await Build(options).ProvisionAsync(correctionEnabled: true, progress);
 
         Assert.Equal(ProvisioningState.Ready, result);
         Assert.Equal(
@@ -124,7 +124,7 @@ public sealed class ModelProvisionerTests : IDisposable
         var reported = new List<ProvisioningStatus>();
         var progress = new RecordingProgress<ProvisioningStatus>(reported.Add);
 
-        await Build(options).ProvisionAsync(progress);
+        await Build(options).ProvisionAsync(correctionEnabled: true, progress);
 
         var withProgress = reported.Find(s => s.Progress is not null);
 
@@ -144,7 +144,7 @@ public sealed class ModelProvisionerTests : IDisposable
             .FetchVadAsync(options.VadPath, Arg.Any<CancellationToken>())
             .Returns(_ => { File.WriteAllBytes(options.VadPath, []); return Task.CompletedTask; });
 
-        var result = await Build(options).ProvisionAsync(progress: null);
+        var result = await Build(options).ProvisionAsync(correctionEnabled: true, progress: null);
 
         Assert.Equal(ProvisioningState.Ready, result);
         await source.DidNotReceive().FetchSpeechAsync(
@@ -160,7 +160,7 @@ public sealed class ModelProvisionerTests : IDisposable
             .FetchSpeechAsync(options.SpeechFileName, options.SpeechPath, Arg.Any<IProgress<DownloadProgress>?>(), Arg.Any<CancellationToken>())
             .Returns<Task>(_ => throw new IOException("sin conexión"));
 
-        var result = await Build(options).ProvisionAsync(progress: null);
+        var result = await Build(options).ProvisionAsync(correctionEnabled: true, progress: null);
 
         Assert.Equal(ProvisioningState.Failed, result);
     }
@@ -177,7 +177,7 @@ public sealed class ModelProvisionerTests : IDisposable
             .FetchSpeechAsync(options.SpeechFileName, options.SpeechPath, Arg.Any<IProgress<DownloadProgress>?>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
-        var result = await Build(options).ProvisionAsync(progress: null);
+        var result = await Build(options).ProvisionAsync(correctionEnabled: true, progress: null);
 
         Assert.Equal(ProvisioningState.Failed, result);
     }
@@ -201,7 +201,7 @@ public sealed class ModelProvisionerTests : IDisposable
         var reported = new List<ProvisioningState>();
         var progress = new RecordingProgress<ProvisioningStatus>(s => reported.Add(s.State));
 
-        var exception = await Record.ExceptionAsync(() => Build(options).ProvisionAsync(progress, shutdown.Token));
+        var exception = await Record.ExceptionAsync(() => Build(options).ProvisionAsync(correctionEnabled: true, progress, shutdown.Token));
 
         Assert.Null(exception);
         Assert.DoesNotContain(ProvisioningState.Failed, reported);
@@ -225,7 +225,7 @@ public sealed class ModelProvisionerTests : IDisposable
         var reported = new List<ProvisioningState>();
         var progress = new RecordingProgress<ProvisioningStatus>(s => reported.Add(s.State));
 
-        var result = await Build(options).ProvisionAsync(progress);
+        var result = await Build(options).ProvisionAsync(correctionEnabled: true, progress);
 
         Assert.Equal(ProvisioningState.Failed, result);
         Assert.Contains(ProvisioningState.Failed, reported);
@@ -251,8 +251,8 @@ public sealed class ModelProvisionerTests : IDisposable
 
         var provisioner = Build(options);
 
-        var first = provisioner.ProvisionAsync(progress: null);
-        var second = await provisioner.ProvisionAsync(progress: null);
+        var first = provisioner.ProvisionAsync(correctionEnabled: true, progress: null);
+        var second = await provisioner.ProvisionAsync(correctionEnabled: true, progress: null);
 
         release.SetResult();
         await first;
@@ -273,7 +273,7 @@ public sealed class ModelProvisionerTests : IDisposable
             .FetchSpeechAsync(options.SpeechFileName, options.SpeechPath, Arg.Any<IProgress<DownloadProgress>?>(), Arg.Any<CancellationToken>())
             .Returns<Task>(_ => throw new IOException("se cortó"));
 
-        await Build(options).ProvisionAsync(progress: null);
+        await Build(options).ProvisionAsync(correctionEnabled: true, progress: null);
 
         // ModelProvisioner never touches the .part file itself — resuming, or
         // deleting it on an unrecoverable failure, is IModelSource's job. This
@@ -297,7 +297,7 @@ public sealed class ModelProvisionerTests : IDisposable
 
         var provisioner = Build(options);
 
-        Assert.True(provisioner.NeedsProvisioning);
+        Assert.True(provisioner.NeedsProvisioning(correctionEnabled: true));
     }
 
     [Fact]
@@ -315,7 +315,7 @@ public sealed class ModelProvisionerTests : IDisposable
 
         var provisioner = Build(options);
 
-        Assert.False(provisioner.NeedsProvisioning);
+        Assert.False(provisioner.NeedsProvisioning(correctionEnabled: true));
     }
 
     [Fact]
@@ -333,7 +333,7 @@ public sealed class ModelProvisionerTests : IDisposable
 
         var provisioner = Build(options);
 
-        Assert.False(provisioner.NeedsProvisioning);
+        Assert.False(provisioner.NeedsProvisioning(correctionEnabled: true));
     }
 
     [Fact]
@@ -352,7 +352,46 @@ public sealed class ModelProvisionerTests : IDisposable
 
         var provisioner = Build(options);
 
-        Assert.False(provisioner.NeedsProvisioning);
+        Assert.False(provisioner.NeedsProvisioning(correctionEnabled: true));
+    }
+
+    /// <summary>
+    /// The trap this whole parameter exists to close: ProvisioningOptions now
+    /// carries real correction coordinates on ANY GPU machine (see
+    /// ProvisioningOptionsTests' own doc comment on CorrectionCoordinates), so
+    /// without a LIVE correctionEnabled gate here, a user who has switched
+    /// correction off would still be told "needs provisioning" — and,
+    /// symmetrically, ProvisionAsync would still attempt the ~2 GB download —
+    /// purely because the file happens to be missing. Both would be exactly
+    /// the "download for a feature switched off" outcome Otto promises never
+    /// to produce.
+    /// </summary>
+    [Fact]
+    public void NeedsProvisioning_ignora_la_correccion_configurada_si_esta_apagada()
+    {
+        var options = OptionsWithCorrection();
+        File.WriteAllBytes(options.SpeechPath, []);
+        File.WriteAllBytes(options.VadPath, []);
+
+        var provisioner = Build(options);
+
+        Assert.False(provisioner.NeedsProvisioning(correctionEnabled: false));
+    }
+
+    /// <summary>
+    /// The other half of the same symmetry: a user who is on a genuine first
+    /// run (Speech+VAD ALSO missing) but has correction switched off must
+    /// still be told provisioning is needed — for Whisper+VAD, which are
+    /// never optional. NeedsProvisioning's three legs are independent ORs;
+    /// correctionEnabled only ever narrows the third one.
+    /// </summary>
+    [Fact]
+    public void NeedsProvisioning_sigue_en_true_por_habla_y_vad_aunque_la_correccion_este_apagada()
+    {
+        var options = OptionsWithCorrection();
+        var provisioner = Build(options);
+
+        Assert.True(provisioner.NeedsProvisioning(correctionEnabled: false));
     }
 
     [Fact]
@@ -404,7 +443,7 @@ public sealed class ModelProvisionerTests : IDisposable
         var reported = new List<ProvisioningState>();
         var progress = new RecordingProgress<ProvisioningStatus>(s => reported.Add(s.State));
 
-        var result = await Build(options).ProvisionAsync(progress);
+        var result = await Build(options).ProvisionAsync(correctionEnabled: true, progress);
 
         Assert.Equal(ProvisioningState.Ready, result);
         Assert.Equal(
@@ -428,7 +467,7 @@ public sealed class ModelProvisionerTests : IDisposable
         var reported = new List<ProvisioningState>();
         var progress = new RecordingProgress<ProvisioningStatus>(s => reported.Add(s.State));
 
-        var result = await Build(options).ProvisionAsync(progress);
+        var result = await Build(options).ProvisionAsync(correctionEnabled: true, progress);
 
         Assert.Equal(ProvisioningState.Ready, result);
         Assert.DoesNotContain(ProvisioningState.Failed, reported);
@@ -444,7 +483,7 @@ public sealed class ModelProvisionerTests : IDisposable
         var options = OptionsWithCorrection(hasGpu: false);
         StubSpeechAndVad(source, options);
 
-        var result = await Build(options).ProvisionAsync(progress: null);
+        var result = await Build(options).ProvisionAsync(correctionEnabled: true, progress: null);
 
         Assert.Equal(ProvisioningState.Ready, result);
         await source.DidNotReceive().FetchAsync(
@@ -463,12 +502,62 @@ public sealed class ModelProvisionerTests : IDisposable
         var reported = new List<ProvisioningState>();
         var progress = new RecordingProgress<ProvisioningStatus>(s => reported.Add(s.State));
 
-        var result = await Build(options).ProvisionAsync(progress);
+        var result = await Build(options).ProvisionAsync(correctionEnabled: true, progress);
 
         Assert.Equal(ProvisioningState.Ready, result);
         Assert.DoesNotContain(ProvisioningState.DownloadingCorrection, reported);
         await source.DidNotReceive().FetchAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IProgress<DownloadProgress>?>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// The symmetric half of <see cref="NeedsProvisioning_ignora_la_correccion_configurada_si_esta_apagada"/>:
+    /// even called directly (a startup ProvisionAsync run that got past
+    /// NeedsProvisioning for the Speech/VAD legs, say), ProvisionAsync itself
+    /// must independently refuse the correction leg when the caller says it
+    /// is currently switched off — the whole point of the two gates staying
+    /// in agreement rather than just one of them.
+    /// </summary>
+    [Fact]
+    public async Task Con_la_correccion_apagada_no_se_intenta_bajar_el_modelo_aunque_haya_coordenadas()
+    {
+        var options = OptionsWithCorrection();
+        StubSpeechAndVad(source, options);
+
+        var reported = new List<ProvisioningState>();
+        var progress = new RecordingProgress<ProvisioningStatus>(s => reported.Add(s.State));
+
+        var result = await Build(options).ProvisionAsync(correctionEnabled: false, progress);
+
+        Assert.Equal(ProvisioningState.Ready, result);
+        Assert.DoesNotContain(ProvisioningState.DownloadingCorrection, reported);
+        await source.DidNotReceive().FetchAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IProgress<DownloadProgress>?>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// The scenario the whole feature exists for: correction switched on at
+    /// RUNTIME after Otto started with it off. The GGUF was never downloaded
+    /// on that earlier, correction-disabled launch — this is what the tray/
+    /// Settings "turn correction on" action calls, on the SAME ProvisioningOptions
+    /// instance (real coordinates present because CorrectionCoordinates no
+    /// longer depends on the startup value of CorrectVoseo), now with
+    /// correctionEnabled: true because the user just asked for it.
+    /// </summary>
+    [Fact]
+    public async Task Con_la_correccion_recien_prendida_en_runtime_el_modelo_se_puede_bajar()
+    {
+        var options = OptionsWithCorrection();
+        StubSpeechAndVad(source, options); // already provisioned on an earlier, correction-off launch
+
+        source
+            .FetchAsync(options.CorrectionUrl!, options.CorrectionPath!, Arg.Any<IProgress<DownloadProgress>?>(), Arg.Any<CancellationToken>())
+            .Returns(_ => { File.WriteAllBytes(options.CorrectionPath!, []); return Task.CompletedTask; });
+
+        var result = await Build(options).ProvisionAsync(correctionEnabled: true, progress: null);
+
+        Assert.Equal(ProvisioningState.Ready, result);
+        Assert.True(File.Exists(options.CorrectionPath));
     }
 
     [Fact]
@@ -490,7 +579,7 @@ public sealed class ModelProvisionerTests : IDisposable
         var reported = new List<ProvisioningState>();
         var progress = new RecordingProgress<ProvisioningStatus>(s => reported.Add(s.State));
 
-        var result = await Build(options).ProvisionAsync(progress, shutdown.Token);
+        var result = await Build(options).ProvisionAsync(correctionEnabled: true, progress, shutdown.Token);
 
         Assert.Equal(ProvisioningState.Idle, result);
         Assert.DoesNotContain(ProvisioningState.Failed, reported);

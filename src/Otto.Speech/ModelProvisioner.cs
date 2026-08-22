@@ -17,10 +17,10 @@ public sealed class ModelProvisioner(ProvisioningOptions options, IModelSource s
     ///
     /// The correction leg counts too, gated by exactly the same conditions
     /// <see cref="ProvisionAsync"/>'s own third leg checks before it will attempt a
-    /// download — <see cref="ProvisioningOptions.HasGpu"/>, a configured
-    /// <see cref="ProvisioningOptions.CorrectionFileName"/> AND a configured
-    /// <see cref="ProvisioningOptions.CorrectionUrl"/>. All three, not a subset:
-    /// an earlier version of this property checked only the first two, so a
+    /// download — <paramref name="correctionEnabled"/>, <see cref="ProvisioningOptions.HasGpu"/>,
+    /// a configured <see cref="ProvisioningOptions.CorrectionFileName"/> AND a
+    /// configured <see cref="ProvisioningOptions.CorrectionUrl"/>. All four, not a
+    /// subset: an earlier version of this property checked only two of them, so a
     /// configuration that set a file name without a URL (or vice versa) left this
     /// permanently true for a leg <see cref="ProvisionAsync"/> would silently
     /// never download — an unrecoverable "needs provisioning forever" state, since
@@ -30,9 +30,18 @@ public sealed class ModelProvisioner(ProvisioningOptions options, IModelSource s
     /// mechanism for that population, so it has to know about every leg
     /// <see cref="ProvisionAsync"/> can actually download.
     /// </summary>
-    public bool NeedsProvisioning =>
+    /// <param name="correctionEnabled">
+    /// The CURRENT value of <c>Settings.CorrectVoseo</c>, read live by the caller
+    /// rather than baked into <see cref="ProvisioningOptions"/> at startup — see
+    /// <see cref="ProvisioningOptions.CorrectionCoordinates"/>'s own doc comment
+    /// for why that split exists. A machine with the feature switched off must
+    /// never be told it "needs provisioning" purely because the GGUF happens to
+    /// be missing; the same "still true for Speech/VAD, false for correction
+    /// alone" shape <see cref="ProvisioningOptions.HasGpu"/> already has.
+    /// </param>
+    public bool NeedsProvisioning(bool correctionEnabled) =>
         !File.Exists(options.SpeechPath) || !File.Exists(options.VadPath)
-        || (options.HasGpu && options.CorrectionFileName is not null && options.CorrectionUrl is not null
+        || (correctionEnabled && options.HasGpu && options.CorrectionFileName is not null && options.CorrectionUrl is not null
             && !File.Exists(options.CorrectionPath));
 
     /// <summary>
@@ -65,8 +74,16 @@ public sealed class ModelProvisioner(ProvisioningOptions options, IModelSource s
     /// files are verified on disk — that post-condition is what
     /// <c>App.StartPipelineAsync()</c> trusts before loading them.
     /// </summary>
+    /// <param name="correctionEnabled">
+    /// Same live gate <see cref="NeedsProvisioning"/> takes, and for the same
+    /// reason: the two must stay in agreement, or a caller could see
+    /// "needs provisioning" and then have the correction leg silently skip
+    /// itself here anyway (or the reverse — attempt a download nothing said
+    /// was coming). Passed explicitly rather than read from <c>Settings</c>
+    /// directly: this project must not reference <c>Otto.App</c>.
+    /// </param>
     public async Task<ProvisioningState> ProvisionAsync(
-        IProgress<ProvisioningStatus>? progress, CancellationToken cancellationToken = default)
+        bool correctionEnabled, IProgress<ProvisioningStatus>? progress, CancellationToken cancellationToken = default)
     {
         if (Interlocked.Exchange(ref busy, 1) == 1) return ProvisioningState.Idle;
 
@@ -97,7 +114,7 @@ public sealed class ModelProvisioner(ProvisioningOptions options, IModelSource s
             // large-v3-turbo: a 3B model on CPU can never land inside the 2s
             // dictation budget, so downloading it there would only cost bandwidth
             // for a feature that can never work.
-            if (options.HasGpu && options.CorrectionPath is { } correctionPath && options.CorrectionUrl is { } correctionUrl
+            if (correctionEnabled && options.HasGpu && options.CorrectionPath is { } correctionPath && options.CorrectionUrl is { } correctionUrl
                 && !File.Exists(correctionPath))
             {
                 try

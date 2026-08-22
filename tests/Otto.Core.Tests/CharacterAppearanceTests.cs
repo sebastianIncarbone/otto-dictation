@@ -346,13 +346,16 @@ public class CharacterAppearanceTests
     [Fact]
     public void Elegir_el_punto_minimo_no_pisa_el_resto_de_los_ajustes()
     {
+        // CorrectVoseo is deliberately not part of this example anymore: it
+        // is now a field the window shows and ApplyTo writes from (like
+        // Language), the same as Appearance itself — Model is what stands
+        // in for "not shown in the window, must pass through untouched".
         var view = Build();
         view.IsMinimalAppearance = true;
 
-        var applied = view.ApplyTo(new Settings { CorrectVoseo = false, Model = "base" });
+        var applied = view.ApplyTo(new Settings { Model = "base" });
 
         Assert.Equal(CharacterAppearance.Minimal, applied.CharacterAppearance);
-        Assert.False(applied.CorrectVoseo);
         Assert.Equal("base", applied.Model);
     }
 

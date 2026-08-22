@@ -76,7 +76,6 @@ internal static class Program
         // for it on next launch.
         var (correctionFileName, correctionUrl, correctionLabel, correctionSize) = ProvisioningOptions.CorrectionCoordinates(
             hasGpu: acceleration == Acceleration.Gpu,
-            correctVoseo: settings.CorrectVoseo,
             fileName: "qwen2.5-3b-instruct-q4_k_m.gguf",
             url: "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf",
             label: "qwen2.5-3b-instruct",
@@ -143,14 +142,38 @@ internal static class Program
         // unprobed — on CPU-only hardware, the same role HardwareProbe already
         // plays for the speech model above: a 3B model can never land inside the
         // 2s dictation budget there, so there is no point paying for the load.
-        services.AddSingleton(new PostProcessingOptions { ModelPath = provisioningOptions.CorrectionPath ?? "" });
-        services.AddSingleton<IPostProcessor>(sp => settings.CorrectVoseo && acceleration == Acceleration.Gpu
+        //
+        // 0 minutes ("nunca" in Ajustes) maps to a null interval — see
+        // PostProcessingOptions.IdleUnloadInterval's own doc comment for why
+        // null, not zero, is what "never unload" has to mean here: TimeSpan.Zero
+        // would be a real, immediate deadline instead of the absence of one.
+        services.AddSingleton(new PostProcessingOptions
+        {
+            ModelPath = provisioningOptions.CorrectionPath ?? "",
+            IdleUnloadInterval = settings.CorrectionIdleUnloadMinutes > 0
+                ? TimeSpan.FromMinutes(settings.CorrectionIdleUnloadMinutes)
+                : null,
+        });
+
+        // Gated on hardware alone now, NOT on settings.CorrectVoseo — the exact
+        // "startup decision" trap this feature exists to close. CorrectVoseo can
+        // be switched on at RUNTIME (the Settings checkbox, the tray toggle), and
+        // a DI graph fixed at process start cannot swap NullPostProcessor for a
+        // real LlamaPostProcessor later — so on any GPU machine the real
+        // processor is always constructed, and `enabled: settings.CorrectVoseo`
+        // is what decides ONLY whether it starts loaded.
+        // DictationPipeline.StartAsync reads IPostProcessor.Enabled before firing
+        // its own deferred ProbeAsync, so a machine that starts with correction
+        // off never pays to load the ~2 GB model at launch either — see that
+        // method's own comment.
+        services.AddSingleton<IPostProcessor>(sp => acceleration == Acceleration.Gpu
             ? new LlamaPostProcessor(
                 new LlamaEngine(
                     sp.GetRequiredService<PostProcessingOptions>(),
                     sp.GetRequiredService<ILogger<LlamaEngine>>()),
                 sp.GetRequiredService<PostProcessingOptions>(),
-                sp.GetRequiredService<ILogger<LlamaPostProcessor>>())
+                sp.GetRequiredService<ILogger<LlamaPostProcessor>>(),
+                enabled: settings.CorrectVoseo)
             : new NullPostProcessor());
         services.AddSingleton<INoteRepository>(sp =>
             new SqliteNoteRepository(databasePath, sp.GetRequiredService<ILogger<SqliteNoteRepository>>()));

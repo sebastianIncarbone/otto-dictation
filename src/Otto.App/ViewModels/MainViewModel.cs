@@ -32,6 +32,17 @@ public sealed partial class MainViewModel : ObservableObject
     /// </summary>
     private HotkeyBinding savedHotkey;
 
+    /// <summary>
+    /// <see cref="CorrectVoseo"/> as it was the last time it was actually
+    /// acted on — either by <see cref="SaveSettings"/> raising
+    /// <see cref="CorrectVoseoChanged"/>, or by <see cref="ReflectCorrectVoseo"/>
+    /// recording a change the tray already applied on its own. Distinct from
+    /// <see cref="savedHotkey"/>'s own "what is on disk" role: this tracks
+    /// "what the live corrector was last told", which is what
+    /// <see cref="CorrectVoseoChangedSinceApplied"/> needs to answer honestly.
+    /// </summary>
+    private bool lastAppliedCorrectVoseo;
+
     public MainViewModel(
         INoteRepository repository,
         DictationPipeline pipeline,
@@ -67,6 +78,9 @@ public sealed partial class MainViewModel : ObservableObject
         showCharacter = settings.ShowCharacter;
         appearance = settings.CharacterAppearance;
         checkForUpdates = settings.CheckForUpdates;
+        correctVoseo = settings.CorrectVoseo;
+        lastAppliedCorrectVoseo = settings.CorrectVoseo;
+        correctionIdleUnloadMinutes = settings.CorrectionIdleUnloadMinutes;
 
         pipeline.StateChanged += OnPipelineStateChanged;
         pipeline.Saved += OnSaved;
@@ -131,6 +145,31 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private string language;
     [ObservableProperty] private bool startWithWindows;
     [ObservableProperty] private bool showCharacter;
+
+    /// <summary>
+    /// The Configuración checkbox. Runtime-switchable now — SaveSettings
+    /// raises <see cref="CorrectVoseoChanged"/> so <c>App</c> can load or
+    /// unload the model immediately, the same two-owner shape
+    /// <see cref="ShowCharacter"/>/<see cref="CharacterVisibilityChanged"/>
+    /// already use.
+    /// </summary>
+    [ObservableProperty] private bool correctVoseo;
+
+    /// <summary>
+    /// Minutes of no correction before the model unloads to free VRAM; 0
+    /// reads as "nunca" in Ajustes. See <c>Settings.CorrectionIdleUnloadMinutes</c>'s
+    /// own doc comment for the default and the reasoning behind it.
+    /// </summary>
+    [ObservableProperty] private int correctionIdleUnloadMinutes;
+
+    /// <summary>
+    /// Whether Configuración should offer the correction section at all —
+    /// mirrors the tray's own "hide what it can't do" treatment for
+    /// CPU-only hardware (see <c>CorrectionTrayStates.Unsupported</c>): a
+    /// checkbox for a feature that can never load inside the 2s dictation
+    /// budget on this machine is worse than no checkbox at all.
+    /// </summary>
+    public bool ShowCorrectionSection => provisioningOptions.HasGpu;
 
     /// <summary>
     /// Which overlay is shown. Separate from <see cref="ShowCharacter"/>, which
@@ -644,6 +683,33 @@ public sealed partial class MainViewModel : ObservableObject
     /// </summary>
     public event Action<CharacterAppearance>? CharacterAppearanceChanged;
 
+    /// <summary>
+    /// Raised on save — but only when <see cref="CorrectVoseo"/> actually
+    /// changed since it was last applied, see
+    /// <see cref="CorrectVoseoChangedSinceApplied"/> — so <c>App</c> can load
+    /// or unload the live corrector. Carries no obligation to persist —
+    /// <see cref="SaveSettings"/> has already done that — same shape as
+    /// <see cref="CharacterVisibilityChanged"/>.
+    /// </summary>
+    public event Action<bool>? CorrectVoseoChanged;
+
+    /// <summary>
+    /// Whether <see cref="SaveSettings"/> should raise <see cref="CorrectVoseoChanged"/>.
+    /// Kept separate and public for the same reason <see cref="ApplyTo"/> is:
+    /// <c>App.SetCorrectionEnabled</c> attempts to provision the ~2 GB
+    /// correction GGUF whenever it is asked to turn correction on and the
+    /// file is missing, with no guard of its own for "already on" — so
+    /// firing this event on every save, whether or not the checkbox was
+    /// touched, retried that download on every unrelated settings change for
+    /// as long as a previous attempt had failed. This is the decision, and a
+    /// decision should be checkable without touching the registry or the
+    /// disk the way <see cref="SaveSettings"/> itself does.
+    /// </summary>
+    public bool CorrectVoseoChangedSinceApplied => CorrectVoseo != lastAppliedCorrectVoseo;
+
+    /// <inheritdoc cref="CorrectVoseoChanged"/>
+    public event Action<int>? CorrectionIdleUnloadMinutesChanged;
+
     // ---- Hotkey capture ----
 
     [ObservableProperty] private HotkeyBinding captured;
@@ -860,6 +926,8 @@ public sealed partial class MainViewModel : ObservableObject
         ShowCharacter = ShowCharacter,
         CharacterAppearance = Appearance,
         CheckForUpdates = CheckForUpdates,
+        CorrectVoseo = CorrectVoseo,
+        CorrectionIdleUnloadMinutes = CorrectionIdleUnloadMinutes,
     };
 
     [RelayCommand]
@@ -876,6 +944,18 @@ public sealed partial class MainViewModel : ObservableObject
         CharacterVisibilityChanged?.Invoke(ShowCharacter);
         CharacterAppearanceChanged?.Invoke(Appearance);
 
+        // Gated on CorrectVoseoChangedSinceApplied, unlike the two events
+        // above: CharacterVisibilityChanged's own handler is cheap and
+        // idempotent, but this one can attempt a ~2 GB download — see that
+        // property's own doc comment.
+        if (CorrectVoseoChangedSinceApplied)
+        {
+            CorrectVoseoChanged?.Invoke(CorrectVoseo);
+            lastAppliedCorrectVoseo = CorrectVoseo;
+        }
+
+        CorrectionIdleUnloadMinutesChanged?.Invoke(CorrectionIdleUnloadMinutes);
+
         IsSettingsOpen = false;
     }
 
@@ -884,6 +964,24 @@ public sealed partial class MainViewModel : ObservableObject
     /// raising anything back, which would bounce between the two owners forever.
     /// </summary>
     public void ReflectCharacterVisibility(bool visible) => ShowCharacter = visible;
+
+    /// <inheritdoc cref="ReflectCharacterVisibility"/>
+    ///
+    /// <remarks>
+    /// Also records <paramref name="enabled"/> as the last-applied value —
+    /// the tray already loaded or unloaded the corrector itself before
+    /// calling this, so as far as <see cref="CorrectVoseoChangedSinceApplied"/>
+    /// is concerned this IS an apply, not just a display update. Without
+    /// this, the next unrelated <see cref="SaveSettings"/> would see
+    /// <see cref="CorrectVoseo"/> differing from a stale
+    /// <c>lastAppliedCorrectVoseo</c> and re-fire <see cref="CorrectVoseoChanged"/>
+    /// for a change the tray already made.
+    /// </remarks>
+    public void ReflectCorrectVoseo(bool enabled)
+    {
+        CorrectVoseo = enabled;
+        lastAppliedCorrectVoseo = enabled;
+    }
 
     // ---- Updates ----
 

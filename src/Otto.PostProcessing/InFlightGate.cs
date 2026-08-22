@@ -30,18 +30,25 @@ public sealed class InFlightGate
     private int active;
     private bool disposed;
 
+    // The reversible counterpart to disposed: set by TryUnload, cleared by
+    // Reopen. Kept as a SEPARATE flag rather than reusing disposed itself so
+    // TryDispose's own terminal guarantee never gets weakened by a Reopen
+    // call reaching it by accident — see Reopen's own doc comment.
+    private bool closed;
+
     /// <summary>
     /// Registers one in-flight call. Returns false — WITHOUT registering —
-    /// once disposal has started; the caller (<see cref="LlamaEngine.ChatAsync"/>)
-    /// must treat that as "the engine is gone" and throw a catchable managed
-    /// exception instead of touching fields <see cref="TryDispose"/> may
-    /// already be freeing.
+    /// once disposal has started OR the gate is currently closed by
+    /// <see cref="TryUnload"/>; the caller (<see cref="LlamaEngine.ChatAsync"/>)
+    /// must treat that as "the engine is gone (for now, or for good)" and
+    /// throw a catchable managed exception instead of touching fields
+    /// <see cref="TryDispose"/>/<see cref="TryUnload"/> may already be freeing.
     /// </summary>
     public bool TryEnter()
     {
         lock (gate)
         {
-            if (disposed) return false;
+            if (disposed || closed) return false;
             active++;
             return true;
         }
@@ -93,6 +100,69 @@ public sealed class InFlightGate
 
             disposeAction();
             return true;
+        }
+    }
+
+    /// <summary>
+    /// The reversible half of <see cref="TryDispose"/>, for the idle-unload
+    /// timer and the runtime correction on/off toggle — both need to free the
+    /// model's native handles without retiring the engine for the rest of the
+    /// process's life. Same coordination as <see cref="TryDispose"/> (block
+    /// every future <see cref="TryEnter"/> immediately, wait up to
+    /// <paramref name="timeout"/> for calls already in flight, only then run
+    /// <paramref name="unloadAction"/>) and the same give-up rule (timing out
+    /// means "leave it loaded," never "free it live") — but where
+    /// <see cref="TryDispose"/> leaves the gate closed forever,
+    /// <see cref="TryUnload"/> leaves it closed only until <see cref="Reopen"/>
+    /// is called, or reopens it itself immediately if the timeout wins:
+    /// nothing was actually freed in that case, so refusing new calls
+    /// afterward would make the engine permanently unusable for a model that
+    /// is, in fact, still fully loaded and fine to use. Idempotent the same
+    /// way <see cref="TryDispose"/> is: a second call while already closed is
+    /// a no-op that returns true without running <paramref name="unloadAction"/>
+    /// again.
+    /// </summary>
+    public bool TryUnload(TimeSpan timeout, Action unloadAction)
+    {
+        lock (gate)
+        {
+            if (disposed) return true;
+            if (closed) return true;
+
+            closed = true;
+
+            var deadline = DateTime.UtcNow + timeout;
+
+            while (active > 0)
+            {
+                var remaining = deadline - DateTime.UtcNow;
+                if (remaining <= TimeSpan.Zero || !Monitor.Wait(gate, remaining))
+                {
+                    closed = false;
+                    return false;
+                }
+            }
+
+            unloadAction();
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Reopens a gate closed by a successful <see cref="TryUnload"/> — what a
+    /// later, successful <see cref="LlamaEngine.LoadAsync"/> publish calls
+    /// once new weights/executor are actually in place, so
+    /// <see cref="LlamaEngine.ChatAsync"/> can reach them again. A no-op
+    /// once <see cref="TryDispose"/> has run: that terminal state is never
+    /// reversed by this method, on purpose — Dispose means the process is
+    /// shutting down, and nothing should be able to walk that back.
+    /// </summary>
+    public void Reopen()
+    {
+        lock (gate)
+        {
+            if (disposed) return;
+            closed = false;
         }
     }
 }

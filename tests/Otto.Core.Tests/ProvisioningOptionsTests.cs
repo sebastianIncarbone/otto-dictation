@@ -5,10 +5,24 @@ namespace Otto.Core.Tests;
 /// <summary>
 /// <see cref="ProvisioningOptions.CorrectionCoordinates"/> is what Program.cs calls
 /// instead of assigning the four <c>Correction*</c> properties directly, so the
-/// "should the GGUF be offered at all" decision — hardware AND the user's own
-/// <c>Settings.CorrectVoseo</c> preference — is a plain static method reachable with
-/// no DI container, no <c>Settings</c> type (<c>Otto.Speech</c> must not reference
-/// <c>Otto.App</c>), and no mocks.
+/// "does this hardware support the correction leg at all" decision is a plain
+/// static method reachable with no DI container and no mocks.
+///
+/// Gated on <see cref="ProvisioningOptions.HasGpu"/> alone, NOT on
+/// <c>Settings.CorrectVoseo</c> — a deliberate change from this method's first
+/// cut. <c>ProvisioningOptions</c> is built once, at startup, and correction can
+/// now be switched on at runtime (the Settings checkbox, the tray toggle): if
+/// this method kept gating on the STARTUP value of CorrectVoseo, a GPU user who
+/// started with it off would have <c>CorrectionFileName</c>/<c>CorrectionUrl</c>
+/// permanently null for the rest of the process — the GGUF could never be
+/// downloaded even after they turned correction back on, because
+/// <c>ModelProvisioner.ProvisionAsync</c>'s own third leg has nothing to fetch
+/// without them. Respecting the CURRENT value of CorrectVoseo at the moment
+/// download would actually run — so a machine with the feature switched off
+/// never eagerly downloads a ~2 GB model for it — is <see cref="ModelProvisioner.NeedsProvisioning"/>
+/// and <see cref="ModelProvisioner.ProvisionAsync"/>'s own job now, both of
+/// which take a live <c>correctionEnabled</c> parameter for exactly this reason
+/// — see <see cref="ModelProvisionerTests"/>.
 /// </summary>
 public class ProvisioningOptionsTests
 {
@@ -18,10 +32,10 @@ public class ProvisioningOptionsTests
     private const string Size = "~2 GB";
 
     [Fact]
-    public void Devuelve_las_coordenadas_cuando_hay_GPU_y_CorrectVoseo_esta_activo()
+    public void Devuelve_las_coordenadas_cuando_hay_GPU()
     {
         var (fileName, url, label, size) = ProvisioningOptions.CorrectionCoordinates(
-            hasGpu: true, correctVoseo: true, fileName: FileName, url: Url, label: Label, size: Size);
+            hasGpu: true, fileName: FileName, url: Url, label: Label, size: Size);
 
         Assert.Equal(FileName, fileName);
         Assert.Equal(Url, url);
@@ -30,27 +44,13 @@ public class ProvisioningOptionsTests
     }
 
     [Fact]
-    public void Devuelve_todo_null_si_CorrectVoseo_esta_apagado_aunque_haya_GPU()
+    public void Devuelve_todo_null_sin_GPU()
     {
-        // The exact bug this closes: a GPU user who turned correction off in
-        // Settings must not still get the ~2 GB GGUF downloaded on next launch.
+        // Same gate ModelProvisioner's own HasGpu check already applies: a 3B
+        // model can never land inside the 2s dictation budget on CPU, so there
+        // is nothing to download regardless of what CorrectVoseo says.
         var (fileName, url, label, size) = ProvisioningOptions.CorrectionCoordinates(
-            hasGpu: true, correctVoseo: false, fileName: FileName, url: Url, label: Label, size: Size);
-
-        Assert.Null(fileName);
-        Assert.Null(url);
-        Assert.Null(label);
-        Assert.Null(size);
-    }
-
-    [Fact]
-    public void Devuelve_todo_null_sin_GPU_aunque_CorrectVoseo_este_activo()
-    {
-        // Same gate ModelProvisioner's own HasGpu check already applies —
-        // triangulated separately from the CorrectVoseo case above, so
-        // neither condition alone can make the other unnecessary.
-        var (fileName, url, label, size) = ProvisioningOptions.CorrectionCoordinates(
-            hasGpu: false, correctVoseo: true, fileName: FileName, url: Url, label: Label, size: Size);
+            hasGpu: false, fileName: FileName, url: Url, label: Label, size: Size);
 
         Assert.Null(fileName);
         Assert.Null(url);

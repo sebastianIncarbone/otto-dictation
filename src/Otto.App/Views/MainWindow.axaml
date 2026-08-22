@@ -400,6 +400,30 @@
         <CheckBox Content="Avisarme si hay una versión nueva al arrancar"
                   IsChecked="{Binding CheckForUpdates}" />
 
+        <!-- Oculto sin GPU (ShowCorrectionSection): un modelo de 3B nunca entra
+             en el presupuesto de 2s de dictado en CPU, así que ofrecer el
+             casillero sería ofrecer algo que jamás puede andar en esa máquina —
+             el mismo criterio que ya usa la bandeja
+             (ver CorrectionTrayStates.Unsupported). Prendida y apagada en
+             cualquier momento, no solo al arrancar: activarla vuelve a cargar
+             el modelo (bajándolo primero si todavía no está) y apagarla lo
+             saca de la memoria de la placa de video. -->
+        <StackPanel Spacing="4" IsVisible="{Binding ShowCorrectionSection}">
+          <CheckBox Content="Corregir el dictado al rioplatense" IsChecked="{Binding CorrectVoseo}" />
+          <TextBlock Margin="26,0,0,0" FontSize="11" Opacity="0.6" TextWrapping="Wrap"
+                     Text="Corre en esta misma máquina, sin internet. Mientras está prendida, el modelo ocupa memoria de la placa de video." />
+
+          <StackPanel Orientation="Horizontal" Spacing="6" Margin="26,4,0,0"
+                      IsEnabled="{Binding CorrectVoseo}">
+            <TextBlock Text="Descargar el modelo de la memoria después de" VerticalAlignment="Center"
+                       FontSize="12" Opacity="0.7" />
+            <NumericUpDown Value="{Binding CorrectionIdleUnloadMinutes}" Minimum="0" Maximum="1440"
+                           Increment="5" Width="110" FormatString="0" />
+            <TextBlock Text="minutos sin uso (0 = nunca)" VerticalAlignment="Center"
+                       FontSize="12" Opacity="0.7" />
+          </StackPanel>
+        </StackPanel>
+
         <Button Content="Guardar" Classes="primary" HorizontalAlignment="Right"
                 Command="{Binding SaveSettingsCommand}" />
 

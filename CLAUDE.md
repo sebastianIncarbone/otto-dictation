@@ -105,14 +105,15 @@ at the point of enforcement — read the surrounding comment before overriding o
   correction runs in-process now, so after the downloads finish there is no network call of
   any kind, ever, unless the user clicks "check for updates". Do not add startup network
   traffic.
-- **Everything optional degrades to nothing.** `CorrectVoseo` off, or no GPU at all
-  (`Program.cs` wires `IPostProcessor` only when `settings.CorrectVoseo && acceleration ==
-  Acceleration.Gpu`) → `NullPostProcessor`, raw Whisper output. GPU present but the
-  correction GGUF is missing, still downloading, or fails to load → `LlamaPostProcessor
-  .IsAvailable` stays false and dictation runs on raw Whisper output too — same degradation,
-  reached a different way. No tray icon → open the window instead. Character window throws →
-  log and keep dictating. A failed correction or save can never cost the user their
-  dictation.
+- **Everything optional degrades to nothing.** No GPU at all (`Program.cs` wires
+  `IPostProcessor` to `NullPostProcessor` whenever `acceleration != Acceleration.Gpu`, full
+  stop) → raw Whisper output. `CorrectVoseo` off, the correction GGUF missing or still
+  downloading, a failed load, or an idle-timed-out unload → `LlamaPostProcessor.IsAvailable`
+  stays (or goes back to) false and dictation runs on raw Whisper output too — same
+  degradation, reached a different way; `Enabled` and `IsAvailable` are deliberately two
+  separate booleans for exactly this reason, see the runtime-toggle invariant below. No tray
+  icon → open the window instead. Character window throws → log and keep dictating. A failed
+  correction or save can never cost the user their dictation.
 - **The version comes from the git tag.** `Directory.Build.props` holds `<Version>`; CI
   overrides it from the tag via `publicar.ps1 -Version`. If the assembly version diverges
   from the published tag, `UpdateChecker` answers "up to date" forever and never fails
@@ -123,17 +124,22 @@ at the point of enforcement — read the surrounding comment before overriding o
   empty without invoking the model, which is what stops Whisper inventing text out of
   silence. Otherwise trim to first-to-last speech region and run *one* inference. Splitting
   per region measured ~10× slower and transcribed worse.
-- **Whisper still warms up at startup; the corrector warms up in the background, deferred.**
-  Vulkan compiles compute pipelines on first use (measured >10 s cold vs 0,8 s warm), so
-  `WhisperTranscriber.LoadAsync` is awaited before the hotkey registers — that cost is paid
-  once, before `Idle`, not on the first dictation. The correction model is different on
-  purpose: `DictationPipeline.StartAsync` reaches `Idle` on Whisper alone, then fires
-  `LoadCorrectorAsync` unawaited in the background (see its own doc comment — blocking on it
-  would add the corrector's full load time, plausibly several seconds cold, to every launch
-  of an autostart tray app). `LlamaPostProcessor.WarmUpAsync` runs one throwaway correction
-  right after `LoadAsync` succeeds, for the same reason Whisper's pipeline gets compiled
-  ahead of time: the first real correction should not be the one paying Vulkan's first-use
-  cost. Until that background load settles, or if it ever fails, dictation runs on raw
+- **Whisper still warms up at startup; the corrector warms up in the background, deferred —
+  and only when the user actually wants it on.** Vulkan compiles compute pipelines on first
+  use (measured >10 s cold vs 0,8 s warm), so `WhisperTranscriber.LoadAsync` is awaited before
+  the hotkey registers — that cost is paid once, before `Idle`, not on the first dictation. The
+  correction model is different on purpose: `DictationPipeline.StartAsync` reaches `Idle` on
+  Whisper alone, then fires `LoadCorrectorAsync` unawaited in the background (see its own doc
+  comment — blocking on it would add the corrector's full load time, plausibly several seconds
+  cold, to every launch of an autostart tray app). `LoadCorrectorAsync` checks
+  `IPostProcessor.Enabled` **first**, before calling `ProbeAsync` at all: `Program.cs` now wires
+  `IPostProcessor` to the real `LlamaPostProcessor` on any GPU machine regardless of
+  `Settings.CorrectVoseo` (see the runtime-toggle invariant below for why), so this check is
+  what still keeps a correction-disabled launch from loading a ~2 GB model nobody asked for.
+  `LlamaPostProcessor.WarmUpAsync` runs one throwaway correction right after `LoadAsync`
+  succeeds, for the same reason Whisper's pipeline gets compiled ahead of time: the first real
+  correction should not be the one paying Vulkan's first-use cost. Until that background load
+  settles, or if it ever fails, or the model has since idle-unloaded, dictation runs on raw
   Whisper output — `IsAvailable` is false, not slow.
 - **The correction model's context window is bounded on purpose, not left at the model's
   native size.** `PostProcessingOptions.ContextSize` is **4096**, not Qwen2.5-3B's native
@@ -162,6 +168,35 @@ at the point of enforcement — read the surrounding comment before overriding o
   concurrent callers rather than once per caller.) All three are deliberately free of any
   LLamaSharp type, so the races themselves are unit-testable without a GGUF or a GPU even
   though the calls they guard are not.
+- **Correction is a runtime on/off toggle now, not just a startup decision — and unloading the
+  model is deliberately a different operation from disposing it.** `Settings.CorrectVoseo` (the
+  Ajustes checkbox) and the tray's correction item both call `IPostProcessor.SetEnabledAsync`,
+  and an idle timer calls the same unload path automatically: `Settings.CorrectionIdleUnloadMinutes`
+  (Ajustes, default **15**, **0 means "never"**) becomes `PostProcessingOptions.IdleUnloadInterval`
+  — a `TimeSpan?`, where **null**, not `TimeSpan.Zero`, is what "never" has to mean, since zero
+  would be a real, immediately-due deadline instead of the absence of one. `IdleUnloadScheduler`
+  (a fourth purpose-built, LLamaSharp-free primitive, tested the same way as the three above —
+  see `IdleUnloadSchedulerTests`, driven by an injected `TimeProvider` instead of real minutes)
+  measures idle time from the last correction *or* the last successful load, and on expiry calls
+  `LlamaPostProcessor.UnloadAsync`, which frees the native weights but — unlike `Dispose()`,
+  terminal, called once at process shutdown — leaves the object reusable: a later `ProbeAsync`
+  loads again on the SAME instance. That distinction runs all the way down into `LlamaEngine`:
+  `InFlightGate` gained `TryUnload`/`Reopen` (closes the gate like `TryDispose` does, but a
+  later successful `LoadAsync` reopens it instead of it staying closed forever) and
+  `LoadGenerationTracker` gained `Unload` (bumps the generation to orphan an in-flight load the
+  same way `Dispose` does, but does **not** set the tracker's permanent `disposed` flag, so a
+  later `LoadAsync` can `ClaimGeneration` and publish normally). Do not "simplify" `UnloadAsync`
+  into calling `Dispose()` and rebuilding the engine — that would defeat the entire point of
+  reusing the same instance and would race a concurrent `ProbeAsync` the way the original
+  `Dispose()`-only design never had to consider. After an idle unload, the very next dictation
+  still degrades to raw text (`IsAvailable` is false — the existing, already-documented
+  behaviour) and `LlamaPostProcessor.ProcessAsync` fires a background `ProbeAsync` so the
+  *following* dictation is corrected again; it never makes a dictation wait on the reload. The
+  DI composition root reflects the same split: `Program.cs` always wires the real
+  `LlamaPostProcessor` on GPU hardware regardless of `CorrectVoseo`'s startup value (see the
+  deferred-load invariant above) — the alternative, gating the DI decision on `CorrectVoseo`,
+  is exactly the trap that made turning correction back on at runtime impossible, since a fixed
+  DI graph cannot swap `NullPostProcessor` for a real corrector after the process has started.
 - **`EditGuard` rejects on proportion, not correctness.** In production there is no
   reference to compare against, so a correction that moves too much of the sentence
   (>25% length drift or >20% of words touched) is discarded and the raw text goes in. The
@@ -182,10 +217,19 @@ at the point of enforcement — read the surrounding comment before overriding o
 - **The tray's correction indicator is derived, never stored, and there is deliberately no
   "reconnect."** `CorrectionTrayStates.For` checks `HasGpu` **first**: no GPU short-circuits
   to `Unsupported` ahead of every other input, because a "reintentar" that can never succeed
-  on that hardware is worse than no button at all. Only then does it read `IPostProcessor
-  .IsAvailable`, whether the GGUF file exists, and whether the deferred load has settled, to
-  return Ready / Missing / Loading / Failed. There is no "connecting" state left over from
-  the Ollama era: an in-process model has no connection to lose.
+  on that hardware is worse than no button at all. `CorrectVoseo` is checked **second**, ahead
+  of `IsAvailable` — a machine with correction switched off reads as `Off` regardless of
+  whether the model happens to still be resident (the brief window between a toggle click and
+  `UnloadAsync` actually settling): the header has to say what the user just asked for, not
+  what has not caught up yet. Only past both of those does it read `IPostProcessor.IsAvailable`,
+  whether the GGUF file exists, and whether the deferred load has settled, to return
+  Ready / Missing / Loading / Failed. There is no "connecting" state left over from the Ollama
+  era: an in-process model has no connection to lose. The item itself is built on the tray menu
+  whenever `HasGpu` is true now — **not** gated on `CorrectVoseo` the way it used to be, because
+  a switched-off user still has to be able to turn correction back on from here, and its click
+  handler is a genuine two-way toggle (`Off` → on, `Ready`/`Loading` → off) that only falls back
+  to the original single "reintentar" action for `Missing`/`Failed`, where the user already
+  wants correction on and a click means "try again," not "give up."
 - **The hotkey polls for release on purpose.** `RegisterHotKey` never signals release, and
   the alternative — `WH_KEYBOARD_LL` — installs a system-wide keyboard hook that is
   structurally a keylogger and draws antivirus attention. Consequence: bindings must include
@@ -198,10 +242,15 @@ at the point of enforcement — read the surrounding comment before overriding o
   (~150 MB) for transcription. Same phrase: 0,7 s on GPU, 17 s on CPU — someone who gets the
   wrong model concludes the tool is broken. The same probe result now also decides whether
   the correction model gets downloaded at all: `ProvisioningOptions.CorrectionCoordinates`
-  only returns real GGUF coordinates when `HasGpu && CorrectVoseo`; on CPU-only hardware the
-  ~2 GB Qwen2.5-3B-Instruct correction model is never fetched, never loaded, and the tray
-  never offers it. On a GPU machine with correction enabled, first run grows from ~1,6 GB to
-  ~3,6 GB.
+  returns real GGUF coordinates whenever `HasGpu` is true — **not** gated on `CorrectVoseo`
+  since correction can be switched on at runtime and `ProvisioningOptions` is built once at
+  startup, see the runtime-toggle invariant below for the trap this closes; on CPU-only
+  hardware the ~2 GB Qwen2.5-3B-Instruct correction model is never fetched, never loaded, and
+  the tray never offers it. Whether a download actually *runs* right now is a separate,
+  live question `ModelProvisioner.NeedsProvisioning`/`ProvisionAsync` answer instead, via their
+  own `correctionEnabled` parameter — both read from the same `ProvisioningOptions` fields, so
+  the two stay in agreement by construction rather than by convention. On a GPU machine with
+  correction enabled, first run grows from ~1,6 GB to ~3,6 GB.
 - **The overlay character window must never take focus and must stay click-through.**
   Stealing focus right before injection sends the dictation into Otto instead of the user's
   document.

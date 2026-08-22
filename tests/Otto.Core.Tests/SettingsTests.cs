@@ -14,7 +14,7 @@ namespace Otto.Core.Tests;
 /// </summary>
 public class SettingsTests
 {
-    private static MainViewModel Build(Settings settings)
+    private static MainViewModel Build(Settings settings, bool hasGpu = true)
     {
         var pipeline = new DictationPipeline(
             Substitute.For<IHotkeyService>(),
@@ -42,7 +42,7 @@ public class SettingsTests
             clipboard: () => null,
             provisioningOptions: new ProvisioningOptions
             {
-                ModelsDirectory = "", SpeechFileName = "", VadFileName = "", Label = "", Size = "",
+                ModelsDirectory = "", SpeechFileName = "", VadFileName = "", Label = "", Size = "", HasGpu = hasGpu,
             },
             availability);
     }
@@ -96,6 +96,56 @@ public class SettingsTests
         view.ReflectCharacterVisibility(false);
 
         Assert.False(view.ApplyTo(new Settings { ShowCharacter = true }).ShowCharacter);
+    }
+
+    [Fact]
+    public void Guardar_escribe_la_correccion_y_el_intervalo_de_inactividad()
+    {
+        var view = Build(new Settings());
+
+        view.CorrectVoseo = false;
+        view.CorrectionIdleUnloadMinutes = 30;
+
+        var saved = view.ApplyTo(new Settings());
+
+        Assert.False(saved.CorrectVoseo);
+        Assert.Equal(30, saved.CorrectionIdleUnloadMinutes);
+    }
+
+    [Fact]
+    public void La_correccion_apagada_desde_la_bandeja_sobrevive_a_guardar()
+    {
+        // Same two-owner shape as El_personaje_apagado_desde_la_bandeja_sobrevive_a_guardar:
+        // the tray toggle and the settings window own the same switch, and
+        // ReflectCorrectVoseo is what keeps the window's checkbox from going
+        // stale without a second writer to the settings file.
+        var view = Build(new Settings { CorrectVoseo = true });
+
+        view.ReflectCorrectVoseo(false);
+
+        Assert.False(view.ApplyTo(new Settings { CorrectVoseo = true }).CorrectVoseo);
+    }
+
+    [Fact]
+    public void La_seccion_de_correccion_se_muestra_con_GPU()
+    {
+        var view = Build(new Settings(), hasGpu: true);
+
+        Assert.True(view.ShowCorrectionSection);
+    }
+
+    /// <summary>
+    /// Mirrors the tray's own "hide what it can't do" treatment for CPU-only
+    /// hardware (see CorrectionTrayStates.Unsupported) — a checkbox for a
+    /// feature that can never load inside the 2s dictation budget on this
+    /// machine is worse than no checkbox at all.
+    /// </summary>
+    [Fact]
+    public void La_seccion_de_correccion_se_oculta_sin_GPU()
+    {
+        var view = Build(new Settings(), hasGpu: false);
+
+        Assert.False(view.ShowCorrectionSection);
     }
 
     [Fact]

@@ -54,28 +54,38 @@ public sealed record ProvisioningOptions
     public string? CorrectionPath => CorrectionFileName is null ? null : Path.Combine(ModelsDirectory, CorrectionFileName);
 
     /// <summary>
-    /// The correction leg's download coordinates, or four nulls when the leg
-    /// should not be offered at all: on CPU-only hardware (a 3B model can
-    /// never land inside the 2s dictation budget, so downloading it would
-    /// only cost bandwidth — see <see cref="HasGpu"/>'s own doc) or when the
-    /// user has explicitly turned the feature off (<c>Settings.CorrectVoseo</c>
-    /// == false). Otto.App's <c>Program.cs</c> calls this instead of assigning
-    /// the four <c>Correction*</c> properties directly, so the decision is a
-    /// plain static method — testable with no DI container, no
-    /// <c>Settings</c> type (this project must not reference <c>Otto.App</c>),
-    /// and no mocks. <see cref="ModelProvisioner"/> already treats a
-    /// <see langword="null"/> <see cref="CorrectionFileName"/>/<see cref="CorrectionUrl"/>
-    /// as "nothing to provision" — see its own
-    /// <see cref="ModelProvisioner.NeedsProvisioning"/> doc comment — so
-    /// returning nulls here is the entire fix; no change to
-    /// <see cref="ModelProvisioner"/> itself was needed.
+    /// The correction leg's download coordinates, or four nulls on CPU-only
+    /// hardware, where a 3B model can never land inside the 2s dictation
+    /// budget — see <see cref="HasGpu"/>'s own doc comment — so downloading
+    /// it would only cost bandwidth for a feature that can never work.
+    /// Otto.App's <c>Program.cs</c> calls this instead of assigning the four
+    /// <c>Correction*</c> properties directly, so the decision is a plain
+    /// static method — testable with no DI container, no <c>Settings</c>
+    /// type (this project must not reference <c>Otto.App</c>), and no mocks.
+    ///
+    /// Gated on <see cref="HasGpu"/> ALONE — deliberately NOT on
+    /// <c>Settings.CorrectVoseo</c>, which this method took as a parameter
+    /// before correction could be switched on at runtime. <see cref="ProvisioningOptions"/>
+    /// is built once, at startup; if these coordinates depended on
+    /// CorrectVoseo's value at THAT moment, a GPU user who started with
+    /// correction off would have <see cref="CorrectionFileName"/>/
+    /// <see cref="CorrectionUrl"/> stuck null for the rest of the process —
+    /// the GGUF could never be downloaded even after turning correction back
+    /// on, because <see cref="ModelProvisioner.ProvisionAsync"/>'s third leg
+    /// has nothing to fetch without them. Hardware support and the user's
+    /// current preference are now two separate questions: this answers only
+    /// the first one, permanently, for the life of the process. The second
+    /// one — should a download actually run RIGHT NOW — belongs to whoever
+    /// is asking, at the moment they ask, which is why
+    /// <see cref="ModelProvisioner.NeedsProvisioning"/> and
+    /// <see cref="ModelProvisioner.ProvisionAsync"/> both take a live
+    /// <c>correctionEnabled</c> parameter instead of reading it from here.
     /// </summary>
     public static (string? FileName, string? Url, string? Label, string? Size) CorrectionCoordinates(
         bool hasGpu,
-        bool correctVoseo,
         string fileName,
         string url,
         string label,
         string size) =>
-        hasGpu && correctVoseo ? (fileName, url, label, size) : (null, null, null, null);
+        hasGpu ? (fileName, url, label, size) : (null, null, null, null);
 }
