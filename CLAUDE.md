@@ -99,12 +99,15 @@ at the point of enforcement — read the surrounding comment before overriding o
 
 - **Offline is the product claim, and it is stronger now than it used to be.** The only
   network calls in Otto's entire life are the first-run model downloads (speech, VAD and —
-  GPU-only — correction, see below) and the *manually triggered* update check
+  GPU-only — correction, see below) and the *manually triggered* update path
   (`Settings.CheckForUpdates` is off by default). There used to be a carve-out here for
   Ollama running on `localhost`; it is gone because there is nothing left to carve out —
   correction runs in-process now, so after the downloads finish there is no network call of
   any kind, ever, unless the user clicks "check for updates". Do not add startup network
-  traffic.
+  traffic. That update path now has *two* steps that reach the network — the version check,
+  and downloading the installer if the user then asks for it — and both are behind their own
+  explicit click; see the self-install invariant below for why that second click is not
+  optional.
 - **Everything optional degrades to nothing.** No GPU at all (`Program.cs` wires
   `IPostProcessor` to `NullPostProcessor` whenever `acceleration != Acceleration.Gpu`, full
   stop) → raw Whisper output. `CorrectVoseo` off, the correction GGUF missing or still
@@ -120,6 +123,40 @@ at the point of enforcement — read the surrounding comment before overriding o
   loudly. `UpdateChecker.Current` reads `InformationalVersion`, not `AssemblyVersion`.
 - **"Could not check" is not "up to date."** `UpdateResult` has three states for exactly
   this reason. Do not collapse them.
+- **Otto can install its own update, and every constraint around that is deliberate.**
+  `UpdateInstaller` downloads the release's `Otto-Setup.exe`, checks it against the
+  `SHA256SUMS` published beside it, and runs it with `/SILENT /CLOSEAPPLICATIONS`; `App`
+  then disposes the pipeline and shuts down so Inno can overwrite the running executable.
+  Four things hold it up, and none is decoration.
+  **(1) Two clicks, never zero.** The check is manual and off by default already; fetching
+  ~58 MB and *executing* it is the larger act, not the smaller one, so it inherits that rule
+  and adds its own confirmation. There is no background update path and there should not be.
+  **(2) It fails closed on the hash.** `UpdateChecker.InstallerFrom` returns null unless the
+  release published *both* the installer and `SHA256SUMS`, so `UpdateStatus.CanInstall` is
+  false for every release cut before this existed and the UI falls back to the link.
+  `UpdateInstaller.HashesMatch` rejects anything that is not a full 64-char hex digest —
+  without that length check an unreadable checksums file and a failed hash computation both
+  produce empty strings, which compare equal, and the only gate between a downloaded
+  executable and running it opens by accident. `UpdateInstallerTests` pins that case by name.
+  Be honest about what the hash buys: it catches truncation, corruption and mismatched
+  assets, but it is fetched from the same host over the same connection as the file it
+  describes, so it is **not** a signature. TLS to GitHub is the real guarantee, and code
+  signing is still the unsolved problem — do not let this feature get described as making the
+  download "verified" in the security sense.
+  **(3) Installed copies only.** Gated on `Uninstaller.InstalledUninstaller()`, the same
+  HKCU key that already tells the two distributions apart. The portable ZIP has no installer
+  to run, and a program replacing its own running executable in place is a mess that fails
+  halfway.
+  **(4) `build/otto.iss` has a second `[Run]` line and it is load-bearing.** The original one
+  carries `skipifsilent`, and `RestartApplications=no` means the Restart Manager will not
+  bring Otto back either — so without `Filename: "{app}\{#Exe}"; Flags: nowait; Check:
+  WizardSilent` a self-install leaves Otto installed and *closed*, gone from the tray with
+  the hotkey dead. Solving it with `RestartApplications=yes` instead would also fire on
+  interactive installs, where the existing postinstall checkbox already covers it, and launch
+  two instances.
+  Note that the release workflow now uploads `SHA256SUMS` as an asset and derives the hashes
+  printed in the release notes *from that same file* — computing them twice is two chances to
+  disagree, and the copy inside the prose is the one nobody re-checks.
 - **VAD is a gate, not a splitter** (`WhisperTranscriber.Trim`). No speech at all → return
   empty without invoking the model, which is what stops Whisper inventing text out of
   silence. Otherwise trim to first-to-last speech region and run *one* inference. Splitting

@@ -438,14 +438,36 @@
 
         <Separator Margin="0,4" />
 
-        <Grid ColumnDefinitions="Auto,*,Auto">
-          <TextBlock Text="{Binding Version, StringFormat='Versión {0}'}"
-                     FontSize="12" Opacity="0.6" VerticalAlignment="Center" />
-          <TextBlock Grid.Column="1" Text="{Binding UpdateStatus}" Margin="12,0"
-                     FontSize="12" Opacity="0.8" VerticalAlignment="Center" />
-          <Button Grid.Column="2" Content="Buscar actualizaciones"
-                  Command="{Binding CheckUpdatesCommand}" />
-        </Grid>
+        <!-- El estado salió de la fila y bajó a su propio renglón. Antes vivía en
+             la columna del medio, apretado entre la versión y el botón, y ahí
+             entraban unos 180px: alcanzaba para "Estás al día", que era todo lo
+             que este renglón sabía decir. Ahora también dice por qué NO se
+             instaló algo, y esas frases son largas. Repetir el error del renglón
+             de idle-unload — texto de prosa peleando por ancho contra controles
+             de ancho fijo — estaba a una línea de distancia. -->
+        <StackPanel Spacing="8">
+          <Grid ColumnDefinitions="Auto,*,Auto">
+            <TextBlock Text="{Binding Version, StringFormat='Versión {0}'}"
+                       FontSize="12" Opacity="0.6" VerticalAlignment="Center" />
+            <Button Grid.Column="2" Content="Buscar actualizaciones"
+                    Command="{Binding CheckUpdatesCommand}"
+                    IsEnabled="{Binding !IsInstallingUpdate}" />
+          </Grid>
+
+          <TextBlock Text="{Binding UpdateStatus}" TextWrapping="Wrap"
+                     FontSize="12" Opacity="0.8"
+                     IsVisible="{Binding HasUpdateStatus}" />
+
+          <!-- El segundo click, y el único camino a instalar algo: aparece
+               recién cuando un chequeo encontró una versión nueva que además
+               publicó su hash, en una copia instalada. Dice qué versión instala
+               en vez de decir "instalar", por lo mismo que la confirmación de
+               desinstalar cuenta las notas. -->
+          <Button Classes="primary" HorizontalAlignment="Right"
+                  Content="{Binding InstallUpdateLabel}"
+                  Command="{Binding InstallUpdateCommand}"
+                  IsVisible="{Binding CanInstallUpdate}" />
+        </StackPanel>
 
         <Separator Margin="0,4" />
 

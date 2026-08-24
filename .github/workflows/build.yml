@@ -73,10 +73,25 @@ jobs:
       # direcciona los informes. Si el archivo todavia no fue analizado, esa misma
       # URL es donde se lo sube: el link sirve igual y nunca queda pendiente de
       # que alguien se acuerde de pegarlo.
+      # SHA256SUMS se publica como archivo adjunto y no solamente adentro del
+      # cuerpo de la release, porque ahora tiene dos lectores: una persona que
+      # verifica a mano, y Otto actualizandose a si mismo. Sacar el hash del
+      # cuerpo obligaria a parsear prosa en espanol, o sea a atar una comprobacion
+      # de integridad a la redaccion de un texto que existe para que lo lea gente.
+      #
+      # Los hashes de las notas salen de este mismo archivo, no de una segunda
+      # corrida de sha256sum. Calcularlos dos veces son dos oportunidades de que
+      # digan cosas distintas, y el que se publica adentro del .md es justo el que
+      # nadie vuelve a comparar.
+      - name: Calcular los hashes
+        run: |
+          sha256sum Otto-Setup.exe Otto-windows-x64.zip > SHA256SUMS
+          cat SHA256SUMS
+
       - name: Armar las notas con los hashes
         run: |
-          SETUP=$(sha256sum Otto-Setup.exe | cut -d' ' -f1)
-          ZIP=$(sha256sum Otto-windows-x64.zip | cut -d' ' -f1)
+          SETUP=$(awk '$2 == "Otto-Setup.exe" { print $1 }' SHA256SUMS)
+          ZIP=$(awk '$2 == "Otto-windows-x64.zip" { print $1 }' SHA256SUMS)
 
           cat > notas.md <<'PLANTILLA'
           ## Instalación
@@ -140,4 +155,5 @@ jobs:
           files: |
             Otto-Setup.exe
             Otto-windows-x64.zip
+            SHA256SUMS
           body_path: notas.md

@@ -202,7 +202,13 @@ internal static class Program
 
             // Same story as the clipboard: the save dialog is a window's, and this is the
             // one place that has any business knowing which window.
-            () => App.Shell?.StorageProvider));
+            () => App.Shell?.StorageProvider,
+
+            // A factory, so the HttpClient inside only exists while an update is
+            // actually being downloaded. The logger is a real one and not the
+            // NullLogger the update *check* settles for: this path writes down a
+            // hash mismatch, which is the one line in the log worth having.
+            () => new UpdateInstaller(dataDir, sp.GetRequiredService<ILogger<UpdateInstaller>>())));
 
         App.Services = services.BuildServiceProvider();
 

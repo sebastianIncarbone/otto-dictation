@@ -21,6 +21,7 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly ProvisioningOptions provisioningOptions;
     private readonly IHotkeyAvailability hotkeyAvailability;
     private readonly Func<IStorageProvider?>? storage;
+    private readonly Func<UpdateInstaller>? updateInstaller;
 
     /// <summary>Fallback <see cref="ListeningLabel"/> reads while <c>pipeline.RegisteredHotkey</c> is still null (Loading).</summary>
     private readonly HotkeyBinding startupHotkey;
@@ -58,7 +59,19 @@ public sealed partial class MainViewModel : ObservableObject
         // Left out — as every test leaves it out — exporting finds nowhere to put a
         // file and declines, which is the honest answer when there is no window to
         // ask through. Program.cs is the one place that passes it.
-        Func<IStorageProvider?>? storage = null)
+        Func<IStorageProvider?>? storage = null,
+
+        // A factory rather than an instance, because an UpdateInstaller owns an
+        // HttpClient and this is used at most once in a session — the same reason
+        // CheckUpdatesAsync builds its UpdateChecker inside a `using` instead of
+        // holding one for the life of the window.
+        //
+        // Optional, and null in every test: with no factory the install button
+        // never appears and the check behaves exactly as it did before this
+        // existed. That is the honest degradation, not a hidden one — self-install
+        // is already unavailable on the portable copy, so "no install offered" is
+        // a state the UI has to render correctly regardless.
+        Func<UpdateInstaller>? updateInstaller = null)
     {
         this.repository = repository;
         this.pipeline = pipeline;
@@ -68,6 +81,7 @@ public sealed partial class MainViewModel : ObservableObject
         this.provisioningOptions = provisioningOptions;
         this.hotkeyAvailability = hotkeyAvailability;
         this.storage = storage;
+        this.updateInstaller = updateInstaller;
 
         startupHotkey = settings.ToBinding();
         savedHotkey = startupHotkey;
@@ -986,17 +1000,58 @@ public sealed partial class MainViewModel : ObservableObject
     // ---- Updates ----
 
     [ObservableProperty] private bool checkForUpdates;
-    [ObservableProperty] private string updateStatus = "";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasUpdateStatus))]
+    private string updateStatus = "";
+
+    /// <summary>
+    /// Keeps the status line out of the layout until there is something to say.
+    /// Expressed here rather than as a converter in the view so the rule is one
+    /// thing in one place — the same argument <see cref="IsShowingNotes"/> makes.
+    /// </summary>
+    public bool HasUpdateStatus => !string.IsNullOrEmpty(UpdateStatus);
 
     public string Version => UpdateChecker.Current;
+
+    /// <summary>
+    /// The last check's answer, kept so the install command has something to act
+    /// on. Nothing else reads it: the button's visibility is
+    /// <see cref="CanInstallUpdate"/>, decided once when the check lands, rather
+    /// than re-derived from here on every binding evaluation.
+    /// </summary>
+    private UpdateStatus? lastCheck;
+
+    /// <summary>Whether the "instalar" button is on screen at all.</summary>
+    [ObservableProperty] private bool canInstallUpdate;
+
+    /// <summary>Hides both buttons while a download is in flight, so neither can be started twice.</summary>
+    [ObservableProperty] private bool isInstallingUpdate;
+
+    /// <summary>
+    /// Names the version, rather than saying "instalar". The same reason the
+    /// uninstall confirmation counts the notes: "instalar 2.1.0" is something a
+    /// person can agree to, "instalar" is something they have to trust.
+    /// </summary>
+    [ObservableProperty] private string installUpdateLabel = "Instalar";
+
+    /// <summary>
+    /// The installer is running and Otto has to get out of its way — Inno is about
+    /// to overwrite the executable this process is running from. <c>App</c> shuts
+    /// down on this exactly as it does for <see cref="UninstallRequested"/>.
+    /// </summary>
+    public event Action? UpdateInstallStarted;
 
     [RelayCommand]
     private async Task CheckUpdatesAsync()
     {
         UpdateStatus = "Buscando…";
+        CanInstallUpdate = false;
 
         using var checker = new UpdateChecker(NullLogger<UpdateChecker>.Instance);
         var status = await checker.CheckAsync();
+
+        lastCheck = status;
 
         UpdateStatus = status.Result switch
         {
@@ -1004,6 +1059,74 @@ public sealed partial class MainViewModel : ObservableObject
             UpdateResult.UpToDate  => $"Estás al día ({status.CurrentVersion})",
             _ => "No se pudo verificar. ¿Estás sin conexión?",
         };
+
+        // Three conditions, and all three are real. There has to be something newer
+        // that published a hash (CanInstall); there has to be a factory, which the
+        // tests deliberately leave out; and this has to be the installed copy
+        // rather than the portable one. Any of them false means the status line
+        // still reports the new version and the user still gets to it through the
+        // release page — the check is not degraded, only the shortcut.
+        CanInstallUpdate = status.CanInstall && updateInstaller is not null && UpdateInstaller.CanSelfInstall;
+
+        if (CanInstallUpdate) InstallUpdateLabel = $"Instalar {status.LatestVersion}";
+    }
+
+    /// <summary>
+    /// The second deliberate click. See <see cref="UpdateInstaller"/> for why this
+    /// is never reached without one.
+    /// </summary>
+    [RelayCommand]
+    private async Task InstallUpdateAsync()
+    {
+        if (updateInstaller is null || lastCheck?.Installer is null) return;
+
+        IsInstallingUpdate = true;
+        CanInstallUpdate = false;
+
+        try
+        {
+            using var installer = updateInstaller();
+
+            // Constructed on the UI thread, so its callbacks come back to the UI
+            // thread — the download reports from wherever the continuation lands.
+            var progress = new Progress<int>(percent => UpdateStatus = $"Descargando… {percent}%");
+
+            var result = await installer.InstallAsync(lastCheck.Installer, progress);
+
+            UpdateStatus = result switch
+            {
+                UpdateInstallResult.Started =>
+                    "Instalando. Otto se va a cerrar y volver solo.",
+                UpdateInstallResult.ChecksumMismatch =>
+                    "Lo descargado no coincide con lo publicado. No se instaló nada.",
+                UpdateInstallResult.Unverifiable =>
+                    "Esa versión no publicó su hash. Bajala a mano desde la página de la release.",
+                UpdateInstallResult.NotInstalled =>
+                    "Esta es la copia portable: bajá la versión nueva a mano.",
+                UpdateInstallResult.CouldNotLaunch =>
+                    "Se descargó, pero Windows no la pudo abrir. Está en el registro.",
+                _ =>
+                    "No se pudo descargar. ¿Estás sin conexión?",
+            };
+
+            if (result == UpdateInstallResult.Started)
+            {
+                UpdateInstallStarted?.Invoke();
+                return;
+            }
+
+            // Only the two failures a second attempt could actually fix bring the
+            // button back. A hash that did not match will not match on a retry, an
+            // unpublished hash will not appear, and the portable copy will not
+            // become an installed one — offering "reintentar" for any of those is
+            // the same mistake the tray's correction indicator avoids by refusing
+            // to show a retry that cannot succeed on that machine.
+            CanInstallUpdate = result is UpdateInstallResult.DownloadFailed or UpdateInstallResult.CouldNotLaunch;
+        }
+        finally
+        {
+            IsInstallingUpdate = false;
+        }
     }
 
     // ---- Uninstall ----

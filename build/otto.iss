@@ -115,6 +115,21 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: 
 [Run]
 Filename: "{app}\{#Exe}"; Description: "Ejecutar Otto"; Flags: nowait postinstall skipifsilent
 
+; El relanzado después de una actualización silenciosa, y hace falta una segunda
+; línea por dos motivos que se suman: la de arriba lleva skipifsilent, así que no
+; corre, y RestartApplications=no significa que el Administrador de reinicio
+; tampoco lo vuelve a abrir. Sin esto, actualizar desde adentro de Otto lo deja
+; instalado y cerrado: la aplicación desaparece de la bandeja y el atajo deja de
+; responder hasta que alguien la abra a mano, que es exactamente lo que una
+; actualización automática existe para evitar.
+;
+; Se resuelve acá y no poniendo RestartApplications=yes a propósito. Esa opción
+; también aplicaría a la instalación interactiva, donde el casillero "Ejecutar
+; Otto" de la línea de arriba ya cubre el caso — y las dos juntas abrirían dos
+; instancias. Hay una guarda de instancia única que lo haría sobrevivible, pero
+; que algo sea sobrevivible no es razón para provocarlo.
+Filename: "{app}\{#Exe}"; Flags: nowait; Check: WizardSilent
+
 [Code]
 
 function DataDirs(): TArrayOfString;

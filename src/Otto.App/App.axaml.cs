@@ -501,6 +501,7 @@ public partial class App : Application
         {
             var view = services.GetRequiredService<MainViewModel>();
             view.UninstallRequested += RunUninstall;
+            view.UpdateInstallStarted += RunUpdateInstall;
 
             // The same switch lives in two places; this is the settings window
             // telling the tray what the user just chose.
@@ -555,6 +556,36 @@ public partial class App : Application
     /// out of the way. Portable, nothing else is going to clean up after a copied
     /// folder, so Otto does it itself.
     /// </summary>
+    /// <summary>
+    /// Gets out of the installer's way.
+    ///
+    /// <para>
+    /// By the time this runs the downloaded installer is already started — the same
+    /// ordering <see cref="RunUninstall"/> uses, and for the same reason: if it had
+    /// failed to launch, Otto stays alive and working instead of shutting down into
+    /// nothing. Here the ordering is load-bearing for a second reason too. Inno is
+    /// about to overwrite the executable this process is running from, and it can
+    /// only do that once the files are no longer held open.
+    /// </para>
+    /// <para>
+    /// Disposing the pipeline is what releases them: the Whisper model, the SQLite
+    /// connection and — through <c>IPostProcessor</c> — the correction model's
+    /// native weights. Shutting down without it would leave the installer waiting
+    /// on locks held by a process that is already on its way out, which is exactly
+    /// the half-finished install <c>CloseApplications=yes</c> exists to avoid.
+    /// </para>
+    /// </summary>
+    private void RunUpdateInstall()
+    {
+        services.GetRequiredService<ILogger<App>>().LogInformation(
+            "An update is being installed; shutting down so the installer can replace the application");
+
+        services.GetRequiredService<DictationPipeline>().Dispose();
+
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+            desktop.Shutdown();
+    }
+
     private void RunUninstall()
     {
         var log = services.GetRequiredService<ILogger<App>>();
