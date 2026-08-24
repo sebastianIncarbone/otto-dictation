@@ -413,14 +413,23 @@
           <TextBlock Margin="26,0,0,0" FontSize="11" Opacity="0.6" TextWrapping="Wrap"
                      Text="Corre en esta misma máquina, sin internet. Mientras está prendida, el modelo ocupa memoria de la placa de video." />
 
-          <StackPanel Orientation="Horizontal" Spacing="6" Margin="26,4,0,0"
-                      IsEnabled="{Binding CorrectVoseo}">
-            <TextBlock Text="Descargar el modelo de la memoria después de" VerticalAlignment="Center"
+          <!-- Rótulo arriba y control abajo, igual que "Atajo", "Idioma" y
+               "Apariencia". Antes era un solo renglón horizontal, y un StackPanel
+               horizontal mide a sus hijos con ancho infinito: no achica a nadie ni
+               corta línea, así que rótulo + selector + sufijo sumaban más que los
+               560 de la ventana y el "(0 = nunca)" quedaba tajeado contra el borde
+               — peor todavía en los 420 de MinWidth. Partido en dos, lo único que
+               sigue en horizontal son el selector y su unidad, que juntos no llegan
+               ni a la mitad del ancho más angosto posible. -->
+          <StackPanel Spacing="4" Margin="26,4,0,0" IsEnabled="{Binding CorrectVoseo}">
+            <TextBlock Text="Descargarlo de la memoria si no se usa" TextWrapping="Wrap"
                        FontSize="12" Opacity="0.7" />
-            <NumericUpDown Value="{Binding CorrectionIdleUnloadMinutes}" Minimum="0" Maximum="1440"
-                           Increment="5" Width="110" FormatString="0" />
-            <TextBlock Text="minutos sin uso (0 = nunca)" VerticalAlignment="Center"
-                       FontSize="12" Opacity="0.7" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <NumericUpDown Value="{Binding CorrectionIdleUnloadMinutes}" Minimum="0" Maximum="1440"
+                             Increment="5" Width="110" FormatString="0" />
+              <TextBlock Text="minutos (0 = nunca)" VerticalAlignment="Center"
+                         FontSize="12" Opacity="0.7" />
+            </StackPanel>
           </StackPanel>
         </StackPanel>
 
