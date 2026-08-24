@@ -7,7 +7,24 @@ namespace Otto.App;
 
 public enum UpdateResult { UpToDate, Available, CouldNotCheck }
 
-public sealed record UpdateStatus(UpdateResult Result, string CurrentVersion, string? LatestVersion, string? Url)
+/// <summary>
+/// Everything needed to fetch and check one release's installer, or null when the
+/// release does not carry both halves.
+///
+/// <para>
+/// Both halves, because a download URL on its own is not enough to act on. See
+/// <see cref="UpdateInstaller"/> for what the checksum does and — more importantly —
+/// what it does not do.
+/// </para>
+/// </summary>
+public sealed record InstallerAsset(string Url, long Bytes, string ChecksumsUrl);
+
+public sealed record UpdateStatus(
+    UpdateResult Result,
+    string CurrentVersion,
+    string? LatestVersion,
+    string? Url,
+    InstallerAsset? Installer = null)
 {
     public static UpdateStatus UpToDate(string current) => new(UpdateResult.UpToDate, current, current, null);
 
@@ -21,6 +38,13 @@ public sealed record UpdateStatus(UpdateResult Result, string CurrentVersion, st
     /// </summary>
     public static UpdateStatus CouldNotCheck(string current) =>
         new(UpdateResult.CouldNotCheck, current, null, null);
+
+    /// <summary>
+    /// Whether this release can be installed from inside Otto, as opposed to only
+    /// linked to. False is the ordinary answer for every release published before
+    /// the checksums asset existed, and the UI has to keep working for those.
+    /// </summary>
+    public bool CanInstall => Result == UpdateResult.Available && Installer is not null;
 }
 
 /// <summary>
@@ -79,7 +103,7 @@ public sealed class UpdateChecker : IDisposable
             var latest = release.Tag.TrimStart('v', 'V');
 
             return IsNewer(latest, Current)
-                ? new UpdateStatus(UpdateResult.Available, Current, latest, release.Url)
+                ? new UpdateStatus(UpdateResult.Available, Current, latest, release.Url, InstallerFrom(release.Assets))
                 : UpdateStatus.UpToDate(Current);
         }
         catch (Exception ex)
@@ -110,9 +134,48 @@ public sealed class UpdateChecker : IDisposable
         }
     }
 
+    /// <summary>
+    /// Picks the installer and its checksums file out of a release's attachments,
+    /// and answers null unless <b>both</b> are present.
+    ///
+    /// <para>
+    /// Failing closed is the whole point. Every release published before this
+    /// feature existed carries the installer but no <c>SHA256SUMS</c>, and so does
+    /// any future one where that upload step breaks. Offering to install a file
+    /// whose expected hash is unknown would mean running a downloaded executable on
+    /// nothing but hope, which is worse than the link this falls back to — the link
+    /// at least lands the user on the release page, where the hash is printed and
+    /// Windows will still put SmartScreen in front of them.
+    /// </para>
+    /// <para>
+    /// Names are matched exactly and case-sensitively against what
+    /// <c>build/publicar.ps1</c> and the release workflow produce. A fuzzy match
+    /// here would be a way to download the wrong file.
+    /// </para>
+    /// </summary>
+    public static InstallerAsset? InstallerFrom(IReadOnlyList<ReleaseAsset>? assets)
+    {
+        if (assets is null) return null;
+
+        var setup = assets.FirstOrDefault(a => a.Name == UpdateInstaller.InstallerAssetName);
+        var checksums = assets.FirstOrDefault(a => a.Name == UpdateInstaller.ChecksumsAssetName);
+
+        if (setup?.Url is null || checksums?.Url is null) return null;
+
+        return new InstallerAsset(setup.Url, setup.Bytes, checksums.Url);
+    }
+
     private sealed record Release(
         [property: JsonPropertyName("tag_name")] string? Tag,
-        [property: JsonPropertyName("html_url")] string? Url);
+        [property: JsonPropertyName("html_url")] string? Url,
+        [property: JsonPropertyName("assets")] IReadOnlyList<ReleaseAsset>? Assets);
 
     public void Dispose() => http.Dispose();
 }
+
+/// <summary>One file attached to a GitHub release. Public only so the choice of
+/// which attachment to trust is testable without a network.</summary>
+public sealed record ReleaseAsset(
+    [property: JsonPropertyName("name")] string? Name,
+    [property: JsonPropertyName("browser_download_url")] string? Url,
+    [property: JsonPropertyName("size")] long Bytes);

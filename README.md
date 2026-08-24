@@ -36,7 +36,8 @@ that, but they charge a subscription and send your audio to somebody else's serv
 
 Otto sends nothing anywhere. The only network calls in its entire life are downloading the
 speech and (optionally, GPU-only) correction models the first time — nothing after that,
-ever, unless you manually check for updates.
+ever, unless you manually check for updates, and then only the download you asked for if
+you tell it to install one.
 
 ## What it does
 

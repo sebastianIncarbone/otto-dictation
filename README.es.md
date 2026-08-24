@@ -39,7 +39,8 @@ terceros.
 
 Otto no manda nada a ningún lado. Las únicas conexiones de red en toda su vida son la
 descarga de los modelos de voz y (opcional, solo con GPU) de corrección la primera vez —
-después de eso, nunca más, salvo que vos mismo busques actualizaciones.
+después de eso, nunca más, salvo que vos mismo busques actualizaciones, y ahí solo baja lo
+que le pediste si además le decís que instale.
 
 ## Qué hace
 
