@@ -26,6 +26,7 @@
     <ProjectReference Include="..\..\src\Otto.Speech\Otto.Speech.csproj" />
     <ProjectReference Include="..\..\src\Otto.Storage\Otto.Storage.csproj" />
     <ProjectReference Include="..\..\src\Otto.PostProcessing\Otto.PostProcessing.csproj" />
+    <ProjectReference Include="..\..\src\Otto.Tts\Otto.Tts.csproj" />
     <ProjectReference Include="..\..\src\Otto.App\Otto.App.csproj" />
   </ItemGroup>
 

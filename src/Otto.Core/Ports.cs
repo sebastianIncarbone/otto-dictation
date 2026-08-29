@@ -299,3 +299,83 @@ public interface INoteRepository
 
     Task DeleteAsync(long id, CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// One rendered piece of speech, and what it cost to make.
+///
+/// <para>
+/// <see cref="Elapsed"/> against <see cref="Duration"/> is the real-time factor, and
+/// it is the number the whole reading feature rests on: above 1,0 the synthesiser
+/// generates faster than a listener consumes, so a chunked reading never runs out of
+/// audio to play. The spike measured Piper at x4,6 and Qwen3-TTS at x0,69 — which is
+/// why only one of them is wired up, and why this is carried out of the port rather
+/// than logged and forgotten inside the adapter.
+/// </para>
+/// </summary>
+public sealed record SynthesizedSpeech(string Path, TimeSpan Duration, TimeSpan Elapsed)
+{
+    public double RealTimeFactor => Elapsed > TimeSpan.Zero ? Duration / Elapsed : 0;
+}
+
+/// <summary>
+/// Turns text into an audio file on disk. The other direction of the product: Otto
+/// already listens, this is Otto reading back.
+///
+/// <para>
+/// Optional in exactly the same sense as <see cref="IPostProcessor"/>, and for the
+/// same reason: Otto has to work with nothing installed. No voice downloaded, no
+/// synthesiser binary, a failed render — <see cref="IsAvailable"/> goes false and the
+/// feature is simply absent. It can never cost the user their dictation, which is the
+/// only thing they actually launched Otto for.
+/// </para>
+/// <para>
+/// The caller supplies <c>destinationPath</c> rather than the adapter choosing one,
+/// and that is a product decision rather than a stylistic one. Read-aloud audio is
+/// temporary: it is rendered, played and deleted, and it never accumulates in the
+/// user's profile. Only if the user explicitly asks to keep a reading does the file
+/// survive, and then it is moved somewhere they chose under a name Otto composes from
+/// the voice and the note. An adapter that picked its own path would own a lifetime it
+/// has no business owning.
+/// </para>
+/// <para>
+/// Obligation on the adapter: <c>text</c> arrives as a single utterance and must be
+/// rendered as one. Splitting a long text into chunks is <see cref="ISpeechSynthesizer"/>'s
+/// caller's job — that is what buys time-to-first-sound — and an adapter that silently
+/// re-splits would produce audio the caller cannot sequence.
+/// </para>
+/// </summary>
+public interface ISpeechSynthesizer
+{
+    /// <summary>
+    /// True when a reading would actually produce sound right now: the engine is
+    /// present and a voice is installed. Distinct from the user's preference, which
+    /// lives in settings — the same two-boolean split <see cref="IPostProcessor.Enabled"/>
+    /// and <see cref="IPostProcessor.IsAvailable"/> already draw, and for the same
+    /// reason: "the user turned it off" and "it cannot run here" are different states
+    /// that the UI has to be able to tell apart.
+    /// </summary>
+    bool IsAvailable { get; }
+
+    Task<SynthesizedSpeech> SpeakAsync(string text, string destinationPath, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Does nothing, and says so. What Otto uses when no voice is installed — the
+/// read-aloud counterpart of <see cref="NullPostProcessor"/>.
+///
+/// <para>
+/// <see cref="SpeakAsync"/> throws rather than returning a silent WAV. A caller is
+/// obliged to check <see cref="IsAvailable"/> first, and handing back a valid-looking
+/// file containing nothing would turn that missed check into a reading that plays
+/// silence with no error anywhere — the exact failure shape the spike hit when
+/// <c>piper.exe</c> could not find its phoneme data.
+/// </para>
+/// </summary>
+public sealed class NullSpeechSynthesizer : ISpeechSynthesizer
+{
+    public bool IsAvailable => false;
+
+    public Task<SynthesizedSpeech> SpeakAsync(string text, string destinationPath, CancellationToken cancellationToken = default) =>
+        throw new InvalidOperationException(
+            "There is no speech synthesiser installed. Check IsAvailable before calling SpeakAsync.");
+}
