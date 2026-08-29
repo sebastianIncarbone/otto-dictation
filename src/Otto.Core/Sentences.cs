@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace Otto.Tts;
+namespace Otto.Core;
 
 /// <summary>
 /// Cuts a text into chunks that are synthesised and played one after another.

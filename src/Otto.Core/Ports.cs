@@ -70,6 +70,18 @@ public sealed class HotkeyRegistrationException(HotkeyBinding binding, bool alre
 public sealed record HotkeyBinding(HotkeyModifiers Modifiers, uint VirtualKey)
 {
     public static HotkeyBinding Default => new(HotkeyModifiers.Control | HotkeyModifiers.Alt, 0x20); // Ctrl+Alt+Espacio
+
+    /// <summary>
+    /// Ctrl+Alt+L, for <i>leer</i> — the reading trigger.
+    ///
+    /// <para>
+    /// A letter rather than another modifier-only shape, because the same constraint that
+    /// binds dictation binds this: <c>RegisterHotKey</c> needs a non-modifier key. It sits
+    /// on the same Ctrl+Alt prefix as dictation so the two read as one family, and L is
+    /// the letter a Spanish-speaking user reaches for first.
+    /// </para>
+    /// </summary>
+    public static HotkeyBinding DefaultReading => new(HotkeyModifiers.Control | HotkeyModifiers.Alt, 0x4C);
 }
 
 [Flags]
@@ -378,4 +390,69 @@ public sealed class NullSpeechSynthesizer : ISpeechSynthesizer
     public Task<SynthesizedSpeech> SpeakAsync(string text, string destinationPath, CancellationToken cancellationToken = default) =>
         throw new InvalidOperationException(
             "There is no speech synthesiser installed. Check IsAvailable before calling SpeakAsync.");
+}
+
+/// <summary>
+/// Plays one rendered fragment.
+///
+/// <para>
+/// Obligation on the adapter: return only once the audio has actually finished, and
+/// stop the sound — not merely the waiting — when the token is cancelled. Both halves
+/// are load-bearing. Returning early would let <see cref="ReadingPipeline"/> start the
+/// next fragment over the top of this one, turning a reading into two voices talking at
+/// once; and a stop that leaves the speaker running is the single most irritating way
+/// for this feature to fail, because the user has already decided they want silence.
+/// </para>
+/// </summary>
+public interface IAudioPlayer
+{
+    Task PlayAsync(string wavPath, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Gets the text the user wants read, from wherever they are.
+///
+/// <para>
+/// One call, two behaviours, and that is deliberate. The natural gesture is to select
+/// something and press the key; the fallback is to have copied something already. An
+/// adapter is expected to try for the selection first and settle for the clipboard when
+/// there is none — which collapses what would otherwise be two hotkeys into one, with
+/// neither behaviour surprising.
+/// </para>
+/// <para>
+/// Obligation on the adapter: put the user's clipboard back. Reaching the selection
+/// means borrowing the clipboard, exactly as <see cref="ITextInjector"/> does to inject,
+/// and the user asked for a reading — not for their clipboard to be replaced by whatever
+/// happened to be on screen. Returns null when there is nothing to read.
+/// </para>
+/// </summary>
+public interface ISelectionReader
+{
+    Task<string?> ReadAsync(CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Press once to start, press again to stop. The reading counterpart of
+/// <see cref="IHotkeyService"/>, and deliberately a separate port rather than a second
+/// consumer of that one.
+///
+/// <para>
+/// Dictation is push-to-talk, so <see cref="IHotkeyService"/> has to answer the question
+/// Windows will not — has the key been let go? — by polling <c>GetAsyncKeyState</c> until
+/// it has. Reading is a tap: there is no hold, nothing to poll for, and a release event
+/// would mean nothing. Reusing the push-to-talk port would mean spinning a polling loop
+/// on every press to produce an event this feature then ignores.
+/// </para>
+/// <para>
+/// Same registration obligation as <see cref="IHotkeyService.Register"/>: a refused
+/// combination MUST throw <see cref="HotkeyRegistrationException"/> rather than leaving
+/// the user with a key that silently does nothing.
+/// </para>
+/// </summary>
+public interface ISingleShotHotkey : IDisposable
+{
+    event Action? Pressed;
+
+    void Register(HotkeyBinding binding);
+    void Unregister();
 }

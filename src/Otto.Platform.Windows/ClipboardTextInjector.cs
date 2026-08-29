@@ -26,36 +26,21 @@ namespace Otto.Platform.Windows;
 /// in a history the user never asked for. For a tool whose entire promise is that
 /// the audio never leaves the machine, that would be the wrong outcome.</item>
 /// </list>
+/// <para>
+/// The Win32 calls themselves live in <see cref="WindowsClipboard"/>, shared with
+/// <see cref="ClipboardSelectionReader"/>, which has the same two obligations pointing
+/// the other way.
+/// </para>
 /// </summary>
-public sealed class ClipboardTextInjector : ITextInjector
+public sealed class ClipboardTextInjector(ILogger<ClipboardTextInjector> log) : ITextInjector
 {
-    private static readonly TimeSpan RetryDelay = TimeSpan.FromMilliseconds(20);
-    private const int OpenAttempts = 10;
-
-    private readonly ILogger<ClipboardTextInjector> log;
-    private readonly uint[] exclusionFormats;
-
-    public ClipboardTextInjector(ILogger<ClipboardTextInjector> log)
-    {
-        this.log = log;
-
-        // Advisory formats. Well-behaved clipboard managers honour them; others do
-        // not, which is a residual limitation worth documenting rather than hiding.
-        exclusionFormats =
-        [
-            Native.RegisterClipboardFormat("ExcludeClipboardContentFromMonitorProcessing"),
-            Native.RegisterClipboardFormat("CanIncludeInClipboardHistory"),
-            Native.RegisterClipboardFormat("CanUploadToCloudClipboard"),
-        ];
-    }
-
     public async Task InjectAsync(string text, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(text)) return;
 
-        var saved = TryReadClipboardText();
+        var saved = WindowsClipboard.TryReadText();
 
-        if (!TryWriteClipboard(text))
+        if (!WindowsClipboard.TryWriteText(text))
         {
             log.LogWarning("Could not write to the clipboard; the injection is cancelled");
             return;
@@ -67,124 +52,8 @@ public sealed class ClipboardTextInjector : ITextInjector
         // clipboard is handed back, otherwise it pastes the restored content.
         await Task.Delay(TimeSpan.FromMilliseconds(120), cancellationToken);
 
-        if (saved is not null && !TryWriteClipboard(saved, excludeFromHistory: false))
+        if (saved is not null && !WindowsClipboard.TryWriteText(saved, excludeFromHistory: false))
             log.LogWarning("Could not restore the previous clipboard contents");
-    }
-
-    private string? TryReadClipboardText()
-    {
-        if (!TryOpenClipboard()) return null;
-
-        try
-        {
-            var handle = Native.GetClipboardData(Native.CF_UNICODETEXT);
-            if (handle == IntPtr.Zero) return null;
-
-            var pointer = Native.GlobalLock(handle);
-            if (pointer == IntPtr.Zero) return null;
-
-            try
-            {
-                return Marshal.PtrToStringUni(pointer);
-            }
-            finally
-            {
-                Native.GlobalUnlock(handle);
-            }
-        }
-        finally
-        {
-            Native.CloseClipboard();
-        }
-    }
-
-    private bool TryWriteClipboard(string text, bool excludeFromHistory = true)
-    {
-        if (!TryOpenClipboard()) return false;
-
-        try
-        {
-            Native.EmptyClipboard();
-
-            var handle = AllocateUnicode(text);
-            if (handle == IntPtr.Zero) return false;
-
-            // Ownership transfers to the system on success; on failure it is still
-            // ours and has to be released.
-            if (Native.SetClipboardData(Native.CF_UNICODETEXT, handle) == IntPtr.Zero)
-            {
-                Native.GlobalFree(handle);
-                return false;
-            }
-
-            if (excludeFromHistory) ApplyExclusionFormats();
-
-            return true;
-        }
-        finally
-        {
-            Native.CloseClipboard();
-        }
-    }
-
-    /// <summary>
-    /// The exclusion formats carry no payload — their presence on the clipboard is
-    /// the whole signal. A single zero byte is enough to register them.
-    /// </summary>
-    private void ApplyExclusionFormats()
-    {
-        foreach (var format in exclusionFormats)
-        {
-            if (format == 0) continue;
-
-            var marker = Native.GlobalAlloc(Native.GMEM_MOVEABLE, 1);
-            if (marker == IntPtr.Zero) continue;
-
-            if (Native.SetClipboardData(format, marker) == IntPtr.Zero)
-                Native.GlobalFree(marker);
-        }
-    }
-
-    private static IntPtr AllocateUnicode(string text)
-    {
-        var bytes = (nuint)((text.Length + 1) * sizeof(char));
-
-        var handle = Native.GlobalAlloc(Native.GMEM_MOVEABLE, bytes);
-        if (handle == IntPtr.Zero) return IntPtr.Zero;
-
-        var pointer = Native.GlobalLock(handle);
-        if (pointer == IntPtr.Zero)
-        {
-            Native.GlobalFree(handle);
-            return IntPtr.Zero;
-        }
-
-        try
-        {
-            Marshal.Copy(text.ToCharArray(), 0, pointer, text.Length);
-            Marshal.WriteInt16(pointer, text.Length * sizeof(char), 0);
-        }
-        finally
-        {
-            Native.GlobalUnlock(handle);
-        }
-
-        return handle;
-    }
-
-    /// <summary>
-    /// The clipboard is a single system-wide resource and any application may hold
-    /// it for a moment, so failing to open it once means nothing.
-    /// </summary>
-    private bool TryOpenClipboard()
-    {
-        for (var attempt = 0; attempt < OpenAttempts; attempt++)
-        {
-            if (Native.OpenClipboard(IntPtr.Zero)) return true;
-            Thread.Sleep(RetryDelay);
-        }
-
-        return false;
     }
 
     private static void SendPaste()
