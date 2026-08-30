@@ -857,6 +857,8 @@ public partial class App : Application
 
         await pipeline.StartAsync(settings.ToBinding());
 
+        StartReading(settings);
+
         // StartAsync only awaits the hotkey registration — the correction
         // model's own load runs deferred, in the background, and has
         // usually NOT settled by the time this line runs. This call still
@@ -867,5 +869,40 @@ public partial class App : Application
         RefreshCorrectionItem(
             services.GetRequiredService<IPostProcessor>(),
             services.GetRequiredService<ProvisioningOptions>());
+    }
+
+    /// <summary>
+    /// Registers the reading hotkey, and only when the user has asked for reading.
+    ///
+    /// <para>
+    /// Not registered when <see cref="Settings.ReadAloud"/> is off, unlike the dictation
+    /// hotkey which is always taken: an unused global combination held by Otto is one
+    /// another application cannot have, and a user who does not read aloud gets nothing
+    /// in exchange for that.
+    /// </para>
+    /// <para>
+    /// <b>A failure here is swallowed, and that is the opposite of how the dictation
+    /// hotkey is treated.</b> That one is the product — a refused registration is
+    /// surfaced to the user, because Otto with no dictation hotkey is Otto doing nothing
+    /// at all, and the silence around exactly that failure is what
+    /// <see cref="HotkeyRegistrationException"/> was added to end. Reading is optional,
+    /// so it obeys the other rule Otto has always followed: everything optional degrades
+    /// to nothing. Losing Ctrl+Alt+L to another application must not stop dictation from
+    /// starting, and it must certainly not take the tray icon down with it.
+    /// </para>
+    /// </summary>
+    private void StartReading(Settings settings)
+    {
+        if (!settings.ReadAloud) return;
+
+        try
+        {
+            services.GetRequiredService<ReadingPipeline>().Register(settings.ToReadingBinding());
+        }
+        catch (Exception ex)
+        {
+            services.GetRequiredService<ILogger<App>>()
+                .LogWarning(ex, "Could not register the reading hotkey; dictation continues without it");
+        }
     }
 }

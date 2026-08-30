@@ -9,6 +9,7 @@ using Otto.Platform.Windows;
 using Otto.Speech;
 using Otto.PostProcessing;
 using Otto.Storage;
+using Otto.Tts;
 
 /// <summary>
 /// The entry point is a real method rather than top-level statements, and the
@@ -178,6 +179,52 @@ internal static class Program
         services.AddSingleton<INoteRepository>(sp =>
             new SqliteNoteRepository(databasePath, sp.GetRequiredService<ILogger<SqliteNoteRepository>>()));
         services.AddSingleton<DictationPipeline>();
+
+        // Reading aloud, and note what is NOT here: a hardware gate.
+        //
+        // Every optional thing Otto has ever offered disappears on a machine without a
+        // GPU — correction resolves to NullPostProcessor a few lines above, full stop.
+        // Piper is a ~110 MB VITS model that runs on any CPU at x4,6 real time, so this
+        // is the first one that does not. Gating it on `acceleration` out of symmetry
+        // with the block above would remove the single most interesting property the
+        // feature has.
+        //
+        // The voices live under models/ with everything else Otto downloads, and away
+        // from the engine: they are user data that has to survive an upgrade, while
+        // piper.exe ships beside the binary and is replaced by the installer.
+        var voicesDir = Path.Combine(modelsDir, "voices");
+
+        services.AddSingleton(new TtsOptions
+        {
+            EngineDirectory = Path.Combine(AppContext.BaseDirectory, "piper"),
+            VoicesDirectory = voicesDir,
+        });
+
+        services.AddSingleton<IVoiceSource, VoiceSource>();
+        services.AddSingleton<VoiceInstaller>();
+        services.AddSingleton<IAudioPlayer, WasapiAudioPlayer>();
+        services.AddSingleton<ISelectionReader, ClipboardSelectionReader>();
+        services.AddSingleton<ISingleShotHotkey, SingleShotHotkeyService>();
+
+        // Registered as itself as well as behind the port, because the voice and the
+        // sampling preset change while Otto runs — the Ajustes pickers — and
+        // ISpeechSynthesizer deliberately does not expose them: a port that carried
+        // Piper's knobs would be a port shaped like its one implementation.
+        //
+        // Both resolve rather than throw on a value this build does not recognise. That
+        // is not defensive coding; config.json is a file the user can edit and an older
+        // Otto may have written, and a settings file naming a retired voice must not stop
+        // the app from starting.
+        services.AddSingleton(sp => new PiperSynthesizer(
+            sp.GetRequiredService<TtsOptions>(),
+            sp.GetRequiredService<ILogger<PiperSynthesizer>>())
+        {
+            Voice = Voices.Resolve(settings.ReadingVoice),
+            Voicing = PiperVoicing.Resolve(settings.ReadingVoicing),
+        });
+
+        services.AddSingleton<ISpeechSynthesizer>(sp => sp.GetRequiredService<PiperSynthesizer>());
+        services.AddSingleton<ReadingPipeline>();
 
         // --selftest <file.wav> swaps the microphone for a recording, so the pipeline
         // can be exercised without depending on somebody speaking at the right moment.

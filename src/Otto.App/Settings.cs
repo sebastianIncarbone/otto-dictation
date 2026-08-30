@@ -2,6 +2,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Otto.Core;
+using Otto.Tts;
 
 namespace Otto.App;
 
@@ -67,10 +68,53 @@ public sealed record Settings
     /// </summary>
     public bool CheckForUpdates { get; init; }
 
+    /// <summary>
+    /// Reads the selection aloud on its own hotkey.
+    ///
+    /// <para>
+    /// Off by default, and the asymmetry with <see cref="CorrectVoseo"/> is the point.
+    /// Correction ships on because its model is already downloaded — the first run
+    /// fetches it — so switching it on costs nothing the user has not already paid.
+    /// A voice is not: it is a separate ~110 MB download that deliberately does not
+    /// happen at first run, since hanging every install on a transfer for a feature
+    /// nobody asked for is exactly what <c>ModelProvisioner</c> is not for. Turning
+    /// this on is what asks for it.
+    /// </para>
+    /// </summary>
+    public bool ReadAloud { get; init; }
+
+    // Same three-field shape as the dictation hotkey above, including the label
+    // derived from the binding rather than written beside it.
+    public HotkeyModifiers ReadingModifiers { get; init; } = HotkeyBinding.DefaultReading.Modifiers;
+    public uint ReadingVirtualKey { get; init; } = HotkeyBinding.DefaultReading.VirtualKey;
+    public string ReadingHotkeyLabel { get; init; } = HotkeyLabels.For(HotkeyBinding.DefaultReading);
+
+    /// <summary>
+    /// Which Piper voice reads. Defaults to the catalogue's own default rather than a
+    /// literal id, for the reason the hotkey label already documents: two sources of
+    /// truth that agree only until somebody changes one of them.
+    ///
+    /// <para>
+    /// An id this build does not know falls back to the Argentine default rather than
+    /// throwing — see <c>Voices.Resolve</c>. That matters here because this value is in
+    /// a file the user can edit and an older Otto may have written.
+    /// </para>
+    /// </summary>
+    public string ReadingVoice { get; init; } = Voices.Default.Id;
+
+    /// <summary>
+    /// How that voice is sampled — what survived of the "effort level" idea. Not a
+    /// choice of model: the only Argentine voice exists at one quality tier, so a
+    /// lighter model would cost the accent. See <c>PiperVoicing</c>.
+    /// </summary>
+    public string ReadingVoicing { get; init; } = PiperVoicing.Natural.Id;
+
     /// <summary>True when no settings file existed yet, so the window can introduce itself.</summary>
     [JsonIgnore] public bool IsFirstRun { get; init; }
 
     public HotkeyBinding ToBinding() => new(Modifiers, VirtualKey);
+
+    public HotkeyBinding ToReadingBinding() => new(ReadingModifiers, ReadingVirtualKey);
 }
 
 public sealed class SettingsStore
