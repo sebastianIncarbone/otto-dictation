@@ -20,6 +20,18 @@ public sealed record Voice(string Id, string Folder, string Quality, string Acce
 
     public string ConfigUrl => Url + ".json";
 
+    /// <summary>
+    /// The name inside the id — <c>daniela</c> out of <c>es_AR-daniela-high</c>.
+    /// </summary>
+    public string Name => Id.Split('-')[1];
+
+    /// <summary>
+    /// What the settings picker shows. Built from the id rather than stored beside it,
+    /// for the reason the catalogue's missing size fields already state: a second copy of
+    /// a fact can only ever drift from the first.
+    /// </summary>
+    public string Label => $"{char.ToUpperInvariant(Name[0])}{Name[1..]} · {Accent}";
+
     public string ModelPath(string directory) => Path.Combine(directory, FileName);
 
     public string ConfigPath(string directory) => Path.Combine(directory, ConfigFileName);

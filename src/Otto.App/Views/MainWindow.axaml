@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Otto.App.ViewModels"
         xmlns:views="using:Otto.App.Views"
+        xmlns:tts="using:Otto.Tts"
         x:Class="Otto.App.Views.MainWindow"
         x:DataType="vm:MainViewModel"
         Title="Otto"
@@ -430,6 +431,69 @@
               <TextBlock Text="minutos (0 = nunca)" VerticalAlignment="Center"
                          FontSize="12" Opacity="0.7" />
             </StackPanel>
+          </StackPanel>
+        </StackPanel>
+
+        <!-- Sin IsVisible, y la ausencia es lo interesante. El bloque de corrección de
+             arriba se esconde sin placa de video porque un modelo de 3B nunca entra en el
+             presupuesto de 2s del dictado en CPU. Piper corre en cualquier CPU a x4,6, así
+             que la lectura no tiene ninguna máquina de la que esconderse: es la primera
+             cosa opcional que Otto le ofrece a todo el mundo.
+
+             La descarga de la voz es un botón propio y no algo que hace Guardar en
+             silencio. La única regla que Otto tiene sobre la red es que decide la persona,
+             no la aplicación — por eso el chequeo de actualizaciones viene apagado y por
+             eso instalar una toma dos clicks. Que se dispare una transferencia de ~110 MB
+             porque alguien tildó un casillero sería justo lo que esa regla previene, y
+             "es más chica que la actualización" no es un principio. -->
+        <StackPanel Spacing="4">
+          <CheckBox Content="Leer en voz alta lo que esté seleccionado" IsChecked="{Binding ReadAloud}" />
+          <TextBlock Margin="26,0,0,0" FontSize="11" Opacity="0.6" TextWrapping="Wrap"
+                     Text="Corre en esta misma máquina y no necesita placa de video. El atajo es Ctrl+Alt+L: apretalo una vez para que lea lo que tengas seleccionado, y otra vez para cortar." />
+
+          <StackPanel Spacing="10" Margin="26,6,0,0" IsEnabled="{Binding ReadAloud}">
+
+            <StackPanel Spacing="4">
+              <TextBlock Text="Voz" FontSize="12" Opacity="0.7" />
+              <ComboBox ItemsSource="{Binding ReadingVoices}" SelectedItem="{Binding ReadingVoice}"
+                        HorizontalAlignment="Stretch">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="tts:Voice">
+                    <StackPanel Spacing="1" Margin="0,2">
+                      <TextBlock Text="{Binding Label}" />
+                      <TextBlock Text="{Binding Description}" FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </StackPanel>
+
+            <!-- "Entonación" y no "Calidad": la escalera de calidades de Piper existe
+                 (x_low/low/medium/high) pero la única voz argentina del catálogo está sólo
+                 en high, así que bajar de escalón cuesta el acento. Esto cambia cómo se
+                 samplea un mismo modelo, que no cuesta ni velocidad ni acento. -->
+            <StackPanel Spacing="4">
+              <TextBlock Text="Entonación" FontSize="12" Opacity="0.7" />
+              <ComboBox ItemsSource="{Binding ReadingVoicings}" SelectedItem="{Binding ReadingVoicing}"
+                        HorizontalAlignment="Stretch">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="tts:PiperVoicing">
+                    <TextBlock Text="{Binding Label}" Margin="0,2" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </StackPanel>
+
+            <Button Content="Descargar la voz" HorizontalAlignment="Left"
+                    Command="{Binding DownloadVoiceCommand}"
+                    IsVisible="{Binding CanDownloadVoice}" />
+
+            <ProgressBar Minimum="0" Maximum="1" Value="{Binding VoiceDownloadFraction}"
+                         IsVisible="{Binding IsDownloadingVoice}" />
+
+            <TextBlock Text="{Binding ReadingStatus}" TextWrapping="Wrap"
+                       FontSize="12" Opacity="0.8"
+                       IsVisible="{Binding HasReadingStatus}" />
           </StackPanel>
         </StackPanel>
 

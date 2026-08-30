@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using CommunityToolkit.Mvvm.Input;
 using Otto.Core;
 using Otto.Speech;
+using Otto.Tts;
 
 namespace Otto.App.ViewModels;
 
@@ -44,6 +45,18 @@ public sealed partial class MainViewModel : ObservableObject
     /// </summary>
     private bool lastAppliedCorrectVoseo;
 
+    /// <inheritdoc cref="lastAppliedCorrectVoseo"/>
+    private bool lastAppliedReadAloud;
+
+    /// <summary>
+    /// Null in every test, and Program.cs is the one place that passes it — the same
+    /// optional-dependency shape as <see cref="storage"/> and <see cref="updateInstaller"/>.
+    /// Without it the reading section reports no voice installed and offers no download,
+    /// which is the honest rendering of "there is nothing here to install through" rather
+    /// than a state the UI has to pretend cannot happen.
+    /// </summary>
+    private readonly VoiceInstaller? voiceInstaller;
+
     public MainViewModel(
         INoteRepository repository,
         DictationPipeline pipeline,
@@ -71,7 +84,11 @@ public sealed partial class MainViewModel : ObservableObject
         // existed. That is the honest degradation, not a hidden one — self-install
         // is already unavailable on the portable copy, so "no install offered" is
         // a state the UI has to render correctly regardless.
-        Func<UpdateInstaller>? updateInstaller = null)
+        Func<UpdateInstaller>? updateInstaller = null,
+
+        // Optional and null in every test, like the two above. See the field's own
+        // comment for what the reading section does without one.
+        VoiceInstaller? voiceInstaller = null)
     {
         this.repository = repository;
         this.pipeline = pipeline;
@@ -82,6 +99,7 @@ public sealed partial class MainViewModel : ObservableObject
         this.hotkeyAvailability = hotkeyAvailability;
         this.storage = storage;
         this.updateInstaller = updateInstaller;
+        this.voiceInstaller = voiceInstaller;
 
         startupHotkey = settings.ToBinding();
         savedHotkey = startupHotkey;
@@ -95,6 +113,15 @@ public sealed partial class MainViewModel : ObservableObject
         correctVoseo = settings.CorrectVoseo;
         lastAppliedCorrectVoseo = settings.CorrectVoseo;
         correctionIdleUnloadMinutes = settings.CorrectionIdleUnloadMinutes;
+
+        readAloud = settings.ReadAloud;
+        lastAppliedReadAloud = settings.ReadAloud;
+
+        // Resolved rather than looked up strictly: config.json is a file the user can edit
+        // and an older Otto has already written, so an unrecognised id falls back to the
+        // Argentine default instead of leaving this null and taking the window down.
+        readingVoice = Voices.Resolve(settings.ReadingVoice);
+        readingVoicing = PiperVoicing.Resolve(settings.ReadingVoicing);
 
         pipeline.StateChanged += OnPipelineStateChanged;
         pipeline.Saved += OnSaved;
@@ -184,6 +211,137 @@ public sealed partial class MainViewModel : ObservableObject
     /// budget on this machine is worse than no checkbox at all.
     /// </summary>
     public bool ShowCorrectionSection => provisioningOptions.HasGpu;
+
+    // ---- Lectura en voz alta ----
+
+    /// <summary>
+    /// The Configuración checkbox for reading the selection aloud.
+    ///
+    /// <para>
+    /// No <c>ShowReadingSection</c> beside it, deliberately, and the absence is the
+    /// interesting part: <see cref="ShowCorrectionSection"/> exists because a 3B model can
+    /// never load inside the dictation budget on a CPU, so offering the checkbox there
+    /// would be offering something that can never work. Piper runs on any CPU at x4,6, so
+    /// reading has no such machine to hide from — it is the first optional thing Otto
+    /// offers to everyone.
+    /// </para>
+    /// </summary>
+    [ObservableProperty] private bool readAloud;
+
+    public IReadOnlyList<Voice> ReadingVoices { get; } = Voices.All;
+
+    public IReadOnlyList<PiperVoicing> ReadingVoicings { get; } = PiperVoicing.All;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsReadingVoiceInstalled))]
+    [NotifyPropertyChangedFor(nameof(CanDownloadVoice))]
+    private Voice readingVoice;
+
+    /// <summary>
+    /// Which sampling preset reads — what is left of the "effort level" the feature was
+    /// sketched with. Not a choice of model: the only Argentine voice exists at one
+    /// quality tier, so a lighter model would cost the accent, and this product does not
+    /// get to make that trade. See <c>PiperVoicing</c>.
+    /// </summary>
+    [ObservableProperty] private PiperVoicing readingVoicing;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanDownloadVoice))]
+    private bool isDownloadingVoice;
+
+    [ObservableProperty] private double voiceDownloadFraction;
+
+    /// <summary>What the reading section has to say about itself, or empty when it has nothing.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasReadingStatus))]
+    private string readingStatus = "";
+
+    public bool HasReadingStatus => !string.IsNullOrWhiteSpace(ReadingStatus);
+
+    /// <summary>
+    /// Whether the picked voice is already on disk. False with no installer wired — every
+    /// test leaves it out — which is the honest answer rather than a crash: with nothing
+    /// to install through, no voice can be installed.
+    /// </summary>
+    public bool IsReadingVoiceInstalled => voiceInstaller?.IsInstalled(ReadingVoice) ?? false;
+
+    public bool CanDownloadVoice => voiceInstaller is not null && !IsDownloadingVoice && !IsReadingVoiceInstalled;
+
+    /// <summary>
+    /// Downloading a voice is its own button, not something <c>Guardar</c> does quietly.
+    ///
+    /// <para>
+    /// Otto's one rule about the network is that a person decides, not the application —
+    /// it is why the update check is off by default and why installing an update takes two
+    /// clicks rather than none. A ~110 MB transfer starting because somebody ticked a
+    /// checkbox and pressed Guardar would be exactly the thing that rule exists to
+    /// prevent, and "it is smaller than the update" is not a principle.
+    /// </para>
+    /// </summary>
+    [RelayCommand]
+    private async Task DownloadVoiceAsync()
+    {
+        if (voiceInstaller is null || IsDownloadingVoice) return;
+
+        var voice = ReadingVoice;
+
+        IsDownloadingVoice = true;
+        VoiceDownloadFraction = 0;
+        ReadingStatus = $"Bajando la voz {voice.Label}…";
+
+        // Marshalled to the UI thread by Progress<T> itself, captured here where the
+        // context still exists — the same reason the provisioning progress is built in
+        // App rather than inside ModelProvisioner.
+        var progress = new Progress<VoiceDownloadProgress>(report =>
+        {
+            VoiceDownloadFraction = report.Fraction;
+
+            ReadingStatus = report.Total > 0
+                ? $"Bajando {voice.Label} — {report.Downloaded / 1048576:N0} de {report.Total / 1048576:N0} MB"
+                : $"Bajando la voz {voice.Label}…";
+        });
+
+        try
+        {
+            await voiceInstaller.InstallAsync(voice, progress);
+
+            ReadingStatus = $"La voz {voice.Label} quedó lista.";
+            ReadingVoiceChanged?.Invoke(voice, ReadingVoicing);
+        }
+        catch (Exception ex)
+        {
+            // Same three states the update check insists on: "could not" is not "did not
+            // need to". A failed download has to say so, because the alternative is a
+            // checkbox that is on and a feature that silently never speaks.
+            ReadingStatus = $"No se pudo bajar la voz: {ex.Message}";
+        }
+        finally
+        {
+            IsDownloadingVoice = false;
+            OnPropertyChanged(nameof(IsReadingVoiceInstalled));
+            OnPropertyChanged(nameof(CanDownloadVoice));
+        }
+    }
+
+    partial void OnReadingVoiceChanged(Voice value) => ReadingStatus = "";
+
+    /// <summary>
+    /// Raised on save, and only when <see cref="ReadAloud"/> actually changed since it was
+    /// last applied — the same gate <see cref="CorrectVoseoChangedSinceApplied"/> exists
+    /// for. <c>App</c> registers or releases the reading hotkey in response, and taking a
+    /// global combination is not something to redo on every unrelated settings change.
+    /// </summary>
+    public event Action<bool>? ReadAloudChanged;
+
+    /// <inheritdoc cref="ReadAloudChanged"/>
+    public bool ReadAloudChangedSinceApplied => ReadAloud != lastAppliedReadAloud;
+
+    /// <summary>
+    /// Raised whenever the live synthesiser needs to be told which voice to use — on save,
+    /// and again the moment a download finishes so the very next reading uses the voice
+    /// that just arrived rather than waiting for another Guardar.
+    /// </summary>
+    public event Action<Voice, PiperVoicing>? ReadingVoiceChanged;
 
     /// <summary>
     /// Which overlay is shown. Separate from <see cref="ShowCharacter"/>, which
@@ -942,6 +1100,9 @@ public sealed partial class MainViewModel : ObservableObject
         CheckForUpdates = CheckForUpdates,
         CorrectVoseo = CorrectVoseo,
         CorrectionIdleUnloadMinutes = CorrectionIdleUnloadMinutes,
+        ReadAloud = ReadAloud,
+        ReadingVoice = ReadingVoice.Id,
+        ReadingVoicing = ReadingVoicing.Id,
     };
 
     [RelayCommand]
@@ -969,6 +1130,20 @@ public sealed partial class MainViewModel : ObservableObject
         }
 
         CorrectionIdleUnloadMinutesChanged?.Invoke(CorrectionIdleUnloadMinutes);
+
+        // Gated for the same reason CorrectVoseoChanged is: App takes or releases a global
+        // hotkey in response, and redoing that on every unrelated settings change is work
+        // that can only fail, never succeed differently.
+        if (ReadAloudChangedSinceApplied)
+        {
+            ReadAloudChanged?.Invoke(ReadAloud);
+            lastAppliedReadAloud = ReadAloud;
+        }
+
+        // Ungated, unlike the two above: telling the synthesiser which voice to use is a
+        // field assignment, so the cheapest correct thing is to say it every time rather
+        // than track whether it changed.
+        ReadingVoiceChanged?.Invoke(ReadingVoice, ReadingVoicing);
 
         IsSettingsOpen = false;
     }

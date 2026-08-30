@@ -255,7 +255,12 @@ internal static class Program
             // actually being downloaded. The logger is a real one and not the
             // NullLogger the update *check* settles for: this path writes down a
             // hash mismatch, which is the one line in the log worth having.
-            () => new UpdateInstaller(dataDir, sp.GetRequiredService<ILogger<UpdateInstaller>>())));
+            () => new UpdateInstaller(dataDir, sp.GetRequiredService<ILogger<UpdateInstaller>>()),
+
+            // The reading section is the one part of Ajustes that can download something,
+            // and this is what it downloads through. Left out in tests, it reports no
+            // voice installed and offers no button — see the field's own comment.
+            sp.GetRequiredService<VoiceInstaller>()));
 
         App.Services = services.BuildServiceProvider();
 

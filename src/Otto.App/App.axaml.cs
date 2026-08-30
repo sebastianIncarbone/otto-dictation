@@ -8,6 +8,7 @@ using Otto.App.ViewModels;
 using Otto.App.Views;
 using Otto.Core;
 using Otto.Speech;
+using Otto.Tts;
 
 namespace Otto.App;
 
@@ -516,6 +517,18 @@ public partial class App : Application
             // bounce between its two owners, and this is the same switch
             // shape one field over.
             view.CorrectVoseoChanged += enabled => SetCorrectionEnabled(enabled, persist: false);
+
+            // Same shape once more, one feature over. SaveSettings already wrote both to
+            // disk, so neither handler persists anything: they only tell the live objects
+            // what the user just chose.
+            view.ReadAloudChanged += SetReadingEnabled;
+            view.ReadingVoiceChanged += (voice, voicing) =>
+            {
+                var synthesizer = services.GetRequiredService<PiperSynthesizer>();
+
+                synthesizer.Voice = voice;
+                synthesizer.Voicing = voicing;
+            };
             view.CorrectionIdleUnloadMinutesChanged += minutes =>
                 services.GetRequiredService<IPostProcessor>().SetIdleTimeout(
                     minutes > 0 ? TimeSpan.FromMinutes(minutes) : null);
@@ -895,14 +908,44 @@ public partial class App : Application
     {
         if (!settings.ReadAloud) return;
 
+        SetReadingEnabled(true);
+    }
+
+    /// <summary>
+    /// Takes or releases the reading hotkey at runtime, so switching reading on in Ajustes
+    /// works without restarting Otto — the same thing
+    /// <see cref="SetCorrectionEnabled"/> does for the corrector, and for the same reason:
+    /// a DI graph fixed at process start cannot be rebuilt, so the live object is what
+    /// changes.
+    ///
+    /// <para>
+    /// Turning it off releases the combination rather than merely ignoring it. Otto holding
+    /// a global hotkey it will not act on is one another application cannot have, and the
+    /// user just said they do not want it.
+    /// </para>
+    /// </summary>
+    private void SetReadingEnabled(bool enabled)
+    {
+        var reading = services.GetRequiredService<ReadingPipeline>();
+
         try
         {
-            services.GetRequiredService<ReadingPipeline>().Register(settings.ToReadingBinding());
+            if (!enabled)
+            {
+                // Stop first: releasing the hotkey out from under a reading in progress
+                // would leave it talking with nothing left to interrupt it.
+                reading.Stop();
+                reading.Unregister();
+                return;
+            }
+
+            if (reading.RegisteredHotkey is null)
+                reading.Register(services.GetRequiredService<Settings>().ToReadingBinding());
         }
         catch (Exception ex)
         {
             services.GetRequiredService<ILogger<App>>()
-                .LogWarning(ex, "Could not register the reading hotkey; dictation continues without it");
+                .LogWarning(ex, "Could not change the reading hotkey; dictation continues without it");
         }
     }
 }
