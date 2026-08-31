@@ -61,6 +61,7 @@ Hexagonal, with the boundary enforced by the compiler rather than by convention:
 | `Otto.Speech` | `net10.0` | Whisper.net transcription, Silero VAD, per-context `initial_prompt`, resumable model download |
 | `Otto.Storage` | `net10.0` | SQLite + FTS5 notes, embedded SQL migrations |
 | `Otto.PostProcessing` | `net10.0` | In-process Rioplatense correction (LLamaSharp + Vulkan), plus `EditGuard` |
+| `Otto.Tts` | `net10.0` | Reading aloud with Piper as a child process: voice catalogue, download, voicing presets |
 | `Otto.Platform.Windows` | `net10.0-windows` | P/Invoke: hotkey, WASAPI capture, clipboard injection, overlay, GPU probe |
 | `Otto.App` | `net10.0-windows` | Avalonia tray app, notes window, settings, updates, uninstall |
 
@@ -267,6 +268,46 @@ at the point of enforcement — read the surrounding comment before overriding o
   handler is a genuine two-way toggle (`Off` → on, `Ready`/`Loading` → off) that only falls back
   to the original single "reintentar" action for `Missing`/`Failed`, where the user already
   wants correction on and a click means "try again," not "give up."
+- **Reading aloud is the first optional thing that does not vanish without a GPU, and that
+  is the point of the engine choice.** `Otto.Tts` runs `piper.exe` as a child process, one
+  per fragment. It was measured against Qwen3-TTS over the same corpus: Piper x4,6, Qwen
+  **x0,69** — slower than speech itself, so it falls further behind the longer it reads.
+  That is not a premium tier, it is a broken one, and it is why correction's
+  `acceleration == Gpu` gate has no equivalent here (see ADR 0003). Three consequences are
+  load-bearing. **(1)** `piper.exe` resolves `espeak-ng-data` **relative to the working
+  directory, not to its own location** — launched from anywhere else it starts, exits zero,
+  and writes a WAV full of silence with no error anywhere. `PiperSynthesizer` pins
+  `WorkingDirectory`, checks the output file even after a clean exit, and `publicar.ps1`
+  verifies both halves are packaged. **(2)** The "effort level" the feature was sketched with
+  is *not* a quality ladder. Piper ships voices at x_low/low/medium/high, but `es_AR/daniela`
+  — the only Argentine voice in the entire catalogue — exists at `high` and nowhere else, so
+  descending a tier costs the accent. What survives is `PiperVoicing`, which changes how one
+  model is sampled; Ajustes calls it *Entonación*, never *Calidad*. **(3)** The engine is
+  fetched by `publicar.ps1` and cached under `build/.piper`, never committed — a 21 MB
+  third-party executable does not clear this repo's bar for a binary.
+- **Reaching the selection means waiting for the modifiers to come up first, and it is not
+  politeness.** Synthetic input is merged with the real keyboard state rather than replacing
+  it, so the Ctrl+C `ClipboardSelectionReader` sends while the user is still holding
+  Ctrl+Alt+L arrives at the target application as **Ctrl+Alt+C**, which almost nothing treats
+  as copy — every reading would silently fall back to the old clipboard and the selection
+  would never be read once. Synthesising key-ups is not the fix: the physical keys are still
+  down, so Windows contradicts the released state on its next sample and the target sees a
+  keyup its user never performed. The clipboard is then restored, including being *emptied*
+  when it started empty. **Residual limitation, stated rather than hidden:** the copy is
+  performed by the source application, so the exclusion formats `ClipboardTextInjector`
+  relies on cannot be applied to it, and a clipboard manager may still record the selection.
+- **A reading renders exactly one fragment ahead of the one playing.** The overlap is the
+  entire reason `Sentences.Split` exists — the listener waits for the first fragment and
+  nothing else. One ahead rather than all of them is equally deliberate: rendering the whole
+  document up front spends a process launch and a temp file on every fragment of a text the
+  user is about to stop three sentences in. Both halves have a test. The audio is temporary
+  and deleted; only an explicit "keep this" ever moves a file somewhere permanent.
+- **One rule governs every reading trigger: while a reading is in progress, anything that
+  would start one stops it instead.** The hotkey, the notes button, whatever comes later. Two
+  rules for one feature would mean the user has to remember which control they pressed to
+  know what happens next. A failed *reading* hotkey registration is swallowed, unlike the
+  dictation one which is surfaced: dictation is the product, reading is optional and obeys
+  "everything optional degrades to nothing."
 - **The hotkey polls for release on purpose.** `RegisterHotKey` never signals release, and
   the alternative — `WH_KEYBOARD_LL` — installs a system-wide keyboard hook that is
   structurally a keylogger and draws antivirus attention. Consequence: bindings must include
@@ -378,6 +419,8 @@ at the point of enforcement — read the surrounding comment before overriding o
 | Settings | `%APPDATA%\Otto\config.json` |
 | Notes database | `%LOCALAPPDATA%\Otto\otto.db` (WAL) |
 | Models | `%LOCALAPPDATA%\Otto\models\` |
+| Reading voices | `%LOCALAPPDATA%\Otto\models\voices\` — user data, survives an upgrade |
+| Reading engine | `piper\` beside the executable — ships with Otto, replaced by the installer |
 | Log | `%LOCALAPPDATA%\Otto\logs\otto.log` (plus one rotated `otto.log.1`) |
 | Autostart | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `Otto` |
 | Add/Remove Programs | `HKCU\...\Uninstall\{08FD4B32-9406-4142-A528-1E908B2A4A09}_is1` |
@@ -405,6 +448,9 @@ still generated or drawn in code.
 why Linux is out: Wayland blocks three of the five primitives Otto needs).
 `docs/adr/0002-in-process-correction-llamasharp.md` is why Ollama was dropped for an
 in-process corrector, superseding 0001's post-processing decision only.
+`docs/adr/0003-read-aloud-piper.md` is why reading aloud uses Piper out of process rather
+than the better-sounding Qwen3-TTS, and carries the measurements behind it. It supersedes
+nothing — reading is a new capability, not a revision.
 `docs/distribucion-y-primer-arranque.md` is the packaging checklist `publicar.ps1` satisfies.
 The `docs/hito-*.md` files carry the measurements the invariants above rest on —
 `docs/hito-4-resultados.md` specifically measured the Ollama-era corrector and stays as
