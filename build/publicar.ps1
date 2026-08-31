@@ -80,6 +80,54 @@ Si sólo querés el ZIP portable, volvé a correr esto con -NoInstaller.
     }
 }
 
+# Piper se baja acá arriba por la misma razón que ISCC se busca acá arriba:
+# enterarse de que falta después de cuatro minutos de publish es tiempo tirado.
+#
+# No vive en el repositorio, y eso es deliberado. CLAUDE.md pone el listón alto
+# para un tercer binario commiteado: el personaje está porque es arte autoral y
+# las tipografías porque bajarlas al arrancar rompería la promesa de andar sin
+# internet. Un ejecutable de terceros de 21 MB no pasa ese listón — es un
+# artefacto de release, del mismo tipo que los modelos que tampoco se commitean.
+#
+# El zip trae adentro una carpeta `piper/`, así que descomprimirlo en el staging
+# deja exactamente `piper\piper.exe`, que es lo que TtsOptions.EngineDirectory
+# resuelve como AppContext.BaseDirectory\piper. Y espeak-ng-data queda al lado
+# del ejecutable, que es donde piper.exe la busca: la resuelve relativo al
+# DIRECTORIO DE TRABAJO y no al suyo, así que si esa carpeta no viaja con él la
+# lectura no falla — devuelve silencio, sin un solo error en ningún lado.
+$piperCache = Join-Path $PSScriptRoot '.piper'
+$piperZip = Join-Path $piperCache 'piper_windows_amd64.zip'
+$piperUrl = 'https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip'
+
+if (-not (Test-Path $piperZip)) {
+    Write-Host "==> Bajando Piper (~21 MB, una sola vez)"
+    New-Item -ItemType Directory -Force $piperCache | Out-Null
+
+    # A un archivo temporal primero: un script cortado a la mitad no puede dejar
+    # un zip truncado que la próxima corrida dé por bueno. Es la misma convención
+    # del .part que usa ModelDownloader, por el mismo motivo.
+    $parcial = "$piperZip.part"
+
+    try {
+        Invoke-WebRequest -Uri $piperUrl -OutFile $parcial -MaximumRedirection 5
+        Move-Item $parcial $piperZip -Force
+    }
+    catch {
+        if (Test-Path $parcial) { Remove-Item $parcial -Force }
+
+        throw @"
+No se pudo bajar Piper, que es el motor de la lectura en voz alta:
+
+    $piperUrl
+
+Sin esto el paquete se arma igual pero la lectura queda muerta: Otto la ofrece
+en Ajustes, la casilla se prende, y no suena nada. Preferimos fallar acá.
+
+Detalle: $($_.Exception.Message)
+"@
+    }
+}
+
 Write-Host "==> Limpiando salida anterior"
 if (Test-Path $OutputDir) { Remove-Item $OutputDir -Recurse -Force }
 New-Item -ItemType Directory -Force $staging | Out-Null
@@ -156,6 +204,23 @@ foreach ($dll in $vcDlls) {
 if ($faltantes) {
     Write-Warning "No se encontraron: $($faltantes -join ', '). El ZIP va a fallar en maquinas sin el VC++ Redistributable."
 }
+
+# Después de sacar los .pdb y los runtimes ajenos, nunca antes: esos dos pasos
+# barren el staging con -Recurse y se llevarían medio Piper por delante.
+Write-Host "==> Copiando el motor de lectura"
+Expand-Archive -Path $piperZip -DestinationPath $staging -Force
+
+$piperExe = Join-Path $staging 'piper\piper.exe'
+$espeak = Join-Path $staging 'piper\espeak-ng-data'
+
+# Las dos mitades, no una. Un piper.exe sin su espeak-ng-data arranca, sale con
+# codigo 0 y produce un WAV mudo — el modo de falla que mas cuesta diagnosticar
+# de toda esta funcion, y el unico que un chequeo aca puede cerrar de antemano.
+if (-not (Test-Path $piperExe)) { throw "El zip de Piper no dejo piper.exe en $piperExe" }
+if (-not (Test-Path $espeak)) { throw "El zip de Piper no dejo espeak-ng-data en $espeak" }
+
+$piperMb = (Get-ChildItem (Join-Path $staging 'piper') -Recurse -File | Measure-Object Length -Sum).Sum / 1MB
+Write-Host ("    + piper\ ({0:N0} MB)" -f $piperMb)
 
 Write-Host "==> Comprimiendo"
 $zip = Join-Path $OutputDir 'Otto-windows-x64.zip'
