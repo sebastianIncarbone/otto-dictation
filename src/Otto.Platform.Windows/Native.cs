@@ -118,6 +118,15 @@ internal static partial class Native
     internal const uint KEYEVENTF_UNICODE = 0x0004;
     internal const ushort VK_CONTROL = 0x11;
     internal const ushort VK_V = 0x56;
+    internal const ushort VK_C = 0x43;
+
+    // The modifiers a hotkey may still be holding down when its handler runs. Synthetic
+    // input is merged with the real keyboard state, so a Ctrl+C sent while the user is
+    // still on Ctrl+Alt+L arrives at the target application as Ctrl+Alt+C.
+    internal const ushort VK_SHIFT = 0x10;
+    internal const ushort VK_MENU = 0x12;   // Alt
+    internal const ushort VK_LWIN = 0x5B;
+    internal const ushort VK_RWIN = 0x5C;
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct KEYBDINPUT

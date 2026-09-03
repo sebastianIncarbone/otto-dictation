@@ -15,7 +15,17 @@ dotnet test
 .\build\publicar.ps1 -Version 0.2.0
 .\build\publicar.ps1 -NoInstaller  # portable ZIP only
 .\build\icono.ps1                  # regenerate src\Otto.App\Otto.ico on its own
+.\build\traer-piper.ps1              # once, so reading works in a dev build
 ```
+
+**`dotnet run` cannot read aloud until `traer-piper.ps1` has been run once.**
+`piper.exe` ships with Otto rather than being downloaded at runtime, and only
+`publicar.ps1` used to assemble it — into the publish staging, never into
+`bin\`. So reading from a source build was dead, and the symptom was a key that did
+nothing visible while the hotkey, the pipeline and the downloaded voice were all fine.
+The script caches into `build\.piper` and `Otto.App.csproj` copies that into the output
+on build; with no cache the copy is a no-op and Otto reports
+`SpeechAvailability.NoEngine` at runtime. Building never touches the network.
 
 Packaging needs Inno Setup (`winget install JRSoftware.InnoSetup`). `publicar.ps1`
 looks for `ISCC.exe` **before** compiling anything and throws if it is missing —
@@ -61,6 +71,7 @@ Hexagonal, with the boundary enforced by the compiler rather than by convention:
 | `Otto.Speech` | `net10.0` | Whisper.net transcription, Silero VAD, per-context `initial_prompt`, resumable model download |
 | `Otto.Storage` | `net10.0` | SQLite + FTS5 notes, embedded SQL migrations |
 | `Otto.PostProcessing` | `net10.0` | In-process Rioplatense correction (LLamaSharp + Vulkan), plus `EditGuard` |
+| `Otto.Tts` | `net10.0` | Reading aloud with Piper as a child process: voice catalogue, download, voicing presets |
 | `Otto.Platform.Windows` | `net10.0-windows` | P/Invoke: hotkey, WASAPI capture, clipboard injection, overlay, GPU probe |
 | `Otto.App` | `net10.0-windows` | Avalonia tray app, notes window, settings, updates, uninstall |
 
@@ -267,6 +278,126 @@ at the point of enforcement — read the surrounding comment before overriding o
   handler is a genuine two-way toggle (`Off` → on, `Ready`/`Loading` → off) that only falls back
   to the original single "reintentar" action for `Missing`/`Failed`, where the user already
   wants correction on and a click means "try again," not "give up."
+- **"It cannot read" has two causes and they must not be collapsed into one bool.**
+  `ISpeechSynthesizer.Availability` returns `SpeechAvailability` — `Ready`,
+  `NoEngine` or `NoVoice` — and `IsAvailable` is derived from it. It used to be a
+  single bool ANDing `File.Exists(piper.exe)` with `Voice.IsInstalled`, and the UI in
+  front of it guessed "voice": a user whose 114 MB voice was already on disk got sent to
+  a settings page whose only button downloads that same voice, pressed it, and watched
+  nothing change. **Only `NoVoice` opens Ajustes.** Nothing there fixes a missing engine,
+  so pointing at it is worse than saying nothing — which is the argument
+  `NothingToRead` and `Unavailable` were already split over one level up, applied one
+  level down. `Availability` checks the engine first for the same reason: without it the
+  voice is irrelevant.
+- **Reading aloud is the first optional thing that does not vanish without a GPU, and that
+  is the point of the engine choice.** `Otto.Tts` runs `piper.exe` as a child process, one
+  per fragment. It was measured against Qwen3-TTS over the same corpus: Piper x4,6, Qwen
+  **x0,69** — slower than speech itself, so it falls further behind the longer it reads.
+  That is not a premium tier, it is a broken one, and it is why correction's
+  `acceleration == Gpu` gate has no equivalent here (see ADR 0003). Three consequences are
+  load-bearing. **(1)** `piper.exe` resolves `espeak-ng-data` **relative to the working
+  directory, not to its own location** — launched from anywhere else it starts, exits zero,
+  and writes a WAV full of silence with no error anywhere. `PiperSynthesizer` pins
+  `WorkingDirectory`, checks the output file even after a clean exit, and `publicar.ps1`
+  verifies both halves are packaged. **(2)** The "effort level" the feature was sketched with
+  is *not* a quality ladder. Piper ships voices at x_low/low/medium/high, but `es_AR/daniela`
+  — the only Argentine voice in the entire catalogue — exists at `high` and nowhere else, so
+  descending a tier costs the accent. What survives is `PiperVoicing`, which changes how one
+  model is sampled; Ajustes calls it *Entonación*, never *Calidad*. **(3)** The engine is
+  fetched by `publicar.ps1` and cached under `build/.piper`, never committed — a 21 MB
+  third-party executable does not clear this repo's bar for a binary.
+- **Reaching the selection means waiting for the modifiers to come up first, and it is not
+  politeness.** Synthetic input is merged with the real keyboard state rather than replacing
+  it, so the Ctrl+C `ClipboardSelectionReader` sends while the user is still holding
+  Ctrl+Alt+L arrives at the target application as **Ctrl+Alt+C**, which almost nothing treats
+  as copy — every reading would silently fall back to the old clipboard and the selection
+  would never be read once. Synthesising key-ups is not the fix: the physical keys are still
+  down, so Windows contradicts the released state on its next sample and the target sees a
+  keyup its user never performed. The clipboard is then restored, including being *emptied*
+  when it started empty. **Residual limitation, stated rather than hidden:** the copy is
+  performed by the source application, so the exclusion formats `ClipboardTextInjector`
+  relies on cannot be applied to it, and a clipboard manager may still record the selection.
+- **A reading renders exactly one fragment ahead of the one playing.** The overlap is the
+  entire reason `Sentences.Split` exists — the listener waits for the first fragment and
+  nothing else. One ahead rather than all of them is equally deliberate: rendering the whole
+  document up front spends a process launch and a temp file on every fragment of a text the
+  user is about to stop three sentences in. Both halves have a test. The audio is temporary
+  and deleted; only an explicit "keep this" ever moves a file somewhere permanent.
+- **One rule governs every reading trigger: while a reading is in progress, anything that
+  would start one stops it instead.** The hotkey, the notes button, whatever comes later. Two
+  rules for one feature would mean the user has to remember which control they pressed to
+  know what happens next. A failed *reading* hotkey registration is swallowed, unlike the
+  dictation one which is surfaced: dictation is the product, reading is optional and obeys
+  "everything optional degrades to nothing."
+- **Reading speed is a time-stretch in the player, and deliberately NOT Piper's own
+  `LengthScale`.** Piper has a speech-rate parameter and it sounds better — the model
+  decides where the extra time goes rather than a splice hunting for it — but it applies at
+  synthesis, and the pipeline renders one fragment ahead of the one playing, so a change
+  made there would reach the sentence *after next*. That is a button that appears to do
+  nothing. So `ReadingSpeed` drives `IAudioPlayer.Speed`, which `TempoSampleProvider` feeds
+  to SoundTouch's WSOLA over already-rendered audio. It is a stretch and not a resample for
+  the obvious reason: a 22 kHz voice played at 44 kHz is twice as fast *and an octave up*.
+  The upside of the split is that `PiperVoicing` and speed stay independent — one is how
+  the voice sounds, the other is how it is played back — so "Pausado" plus x2 is coherent
+  instead of two settings fighting over one number.
+- **`SoundTouch.Net` is LGPL, and that is why `publicar.ps1` refuses to package without
+  `SoundTouch.Net.dll` loose in the staging.** Otto is MIT. LGPL section 4 asks that the
+  user be able to replace the library, and Otto publishes self-contained but **not**
+  single-file and **not** trimmed, so the assembly sits beside the executable and can be
+  swapped. Turning on `PublishSingleFile` or `PublishTrimmed` would bury it and quietly end
+  that freedom — the check in `publicar.ps1` exists to fail loudly instead, and
+  `THIRD-PARTY-NOTICES.md` (copied into the install directory, not merely committed here)
+  is what states the terms. The library is managed, not a native wrapper, which is why this
+  did not also mean carrying a third binary.
+- **The reading controls are a separate window from the character, and the difference is
+  exactly one extended style.** `CharacterWindow` is scenery: `WS_EX_TRANSPARENT` plus
+  `IsHitTestVisible="False"` sends every click through to the document underneath.
+  `ReadingControlsWindow` cannot do that — a pause button clicks pass through is a pause
+  button that cannot be pressed — so `IOverlayStyler` has two methods now, and
+  `MakeNonActivating` is `MakeClickThrough` minus that one flag. What both keep is
+  `WS_EX_NOACTIVATE`, and it matters *more* here: a card that took focus when the user
+  pressed pause would leave Otto as the foreground window, and the next dictation would
+  paste into Otto instead of into what they were reading. The card is shown only while a
+  reading is happening, built lazily, and hidden with `Hide()` and never `Close()` — same
+  reason the character is, since closing destroys the handle the style was applied to.
+- **The character's reading state is a separate field from `DictationState`, and the enum
+  was deliberately not extended.** `OttoCharacter.Reading` is a `ReadingState?` beside
+  `State`, because the two are orthogonal: dictation is `Idle` for the entire time Otto is
+  talking. Adding a member to `DictationState` would force every other consumer — tray
+  icons, the ring, the glyph, `StateShapes`, the status line — to answer a question about a
+  feature they have nothing to do with. In `Wanted()` a reading outranks the state (or Otto
+  would settle into Neutral, or lounge after ten quiet minutes, while his own voice is
+  coming out of the speakers) but ranks *below* an interjection, since "nothing selected"
+  and "no voice installed" both fire while a reading is technically in progress and those
+  reactions are the only on-screen answer the user gets. It is nullable rather than a bool
+  so a pause is expressible: same megaphone, no movement. Only the character shows it — the
+  ring and the glyph carry dictation and nothing else, and someone on "Punto mínimo" gets
+  the transport card and the tray instead. `hablando.png` is resized to 384×384 to match the
+  rest of the set rather than shipped at its authored 1254×1254; the canvas is 144 logical
+  px. `OttoPoseArtTests` pins that every pose has art, because a missing entry is silent —
+  `Load` returns null, the null is cached, and the character simply does not draw.
+- **Pause is the only reading control that does something a second press of the hotkey does
+  not.** `Toggle` and `Read` still *stop* a paused reading, because "anything that would
+  start a reading stops the one in progress" has to keep meaning the same thing whether or
+  not the user paused — otherwise they have to remember what state they left it in to know
+  what the hotkey will do. Repeat replays the current *sentence*, not the document: the
+  fragment WAV is still in the temp folder until the reading ends, so it costs a second
+  `PlayAsync` rather than a second trip through Piper. The fragment carries its own linked
+  token, which is what tells a repeat apart from a stop — a repeat cancels only that scope
+  and is swallowed, a stop cancels the reading's token and propagates. Catch both and every
+  stop becomes a silent advance to the next sentence; `Cortar_no_se_confunde_con_repetir`
+  pins that. The player holds the pause as an *intention* rather than reading it off the
+  device, because between two fragments there is no device to ask and the gap between
+  sentences is exactly where somebody aiming at the button lands.
+- **Both hotkeys share one capture machine.** `MainViewModel` arms a single
+  `IsCapturingHotkey` with a `HotkeyTarget`, not one machine each: the window-level tunnel
+  handler marks every key handled while a capture is armed, so two armed editors would be
+  two of them waiting on the same key press. That machine also makes the refusal
+  `IHotkeyAvailability` cannot — Otto's *other* hotkey. The probe answers "taken" for a
+  combination Otto itself holds and the self-conflict widening forgives it, which is right
+  for the binding being edited and wrong for the other one. The reading binding takes
+  effect on Guardar rather than on the next launch, unlike dictation's, because `App`
+  already releases and re-takes it every time the reading checkbox moves.
 - **The hotkey polls for release on purpose.** `RegisterHotKey` never signals release, and
   the alternative — `WH_KEYBOARD_LL` — installs a system-wide keyboard hook that is
   structurally a keylogger and draws antivirus attention. Consequence: bindings must include
@@ -288,9 +419,33 @@ at the point of enforcement — read the surrounding comment before overriding o
   own `correctionEnabled` parameter — both read from the same `ProvisioningOptions` fields, so
   the two stay in agreement by construction rather than by convention. On a GPU machine with
   correction enabled, first run grows from ~1,6 GB to ~3,6 GB.
-- **The overlay character window must never take focus and must stay click-through.**
-  Stealing focus right before injection sends the dictation into Otto instead of the user's
-  document.
+- **The overlay character window must never take focus. It is no longer click-through, and
+  that half was traded away deliberately.** Never taking focus is the load-bearing half:
+  stealing focus right before injection sends the dictation into Otto instead of the user's
+  document, and `WS_EX_NOACTIVATE` is what prevents it. `WS_EX_TRANSPARENT` is what is
+  gone, because a window clicks pass through is a window nobody can grab, and the
+  character is draggable now. The cost is real and was accepted rather than hidden: Otto
+  eats the clicks inside his own square. The compensation is that the square can be moved
+  — which is the feature — and that "Punto mínimo" is 64×24. `CharacterWindow` therefore
+  uses `IOverlayStyler.MakeNonActivating`, the same one the reading controls use, and no
+  longer sets `IsHitTestVisible="False"`. Rejected alternative: clipping the window to
+  Otto's silhouette with `SetWindowRgn` keeps both halves, but means deriving a region
+  from each pose's alpha and recomputing it on every swap — a lot of work to protect a
+  square the user can now simply move.
+- **Where the character opens is a pure function, and the case it exists for cannot be
+  reproduced by hand.** `OverlayPlacement.Resolve` takes the stored position, the overlay
+  size and every screen's working area, and answers with the stored spot or the
+  bottom-right corner. The case it protects is a position saved on a monitor that has
+  since been unplugged: Otto would open at coordinates on no screen at all, invisible and
+  impossible to drag back, with the setting to fix it out of reach. "Reachable" is
+  measured per axis and needs `MinimumVisible` (24 px) on both, because a 200×2 strip has
+  plenty of overlapping pixels and nothing anyone can aim at. It deliberately does not
+  nudge a nearly-off-screen position back inside — that would leave Otto somewhere the
+  user never chose, which is worse than the corner they started from. `Settings.CharacterX`
+  and `CharacterY` are `int?` because null is what "never moved" has to mean: a 0,0 default
+  is a real position, top-left, and every fresh install would open there. `App` is the only
+  writer, and amends rather than rebuilds, so an unrelated Guardar cannot send the
+  character home.
 - **Program files and user data are sibling directories, never nested.** The installer owns
   `%LOCALAPPDATA%\Programs\Otto`; the data lives in `%LOCALAPPDATA%\Otto` and
   `%APPDATA%\Otto`. Nest them and `Uninstaller.Run()` — which deletes the data directories
@@ -378,6 +533,8 @@ at the point of enforcement — read the surrounding comment before overriding o
 | Settings | `%APPDATA%\Otto\config.json` |
 | Notes database | `%LOCALAPPDATA%\Otto\otto.db` (WAL) |
 | Models | `%LOCALAPPDATA%\Otto\models\` |
+| Reading voices | `%LOCALAPPDATA%\Otto\models\voices\` — user data, survives an upgrade |
+| Reading engine | `piper\` beside the executable — ships with Otto, replaced by the installer |
 | Log | `%LOCALAPPDATA%\Otto\logs\otto.log` (plus one rotated `otto.log.1`) |
 | Autostart | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `Otto` |
 | Add/Remove Programs | `HKCU\...\Uninstall\{08FD4B32-9406-4142-A528-1E908B2A4A09}_is1` |
@@ -405,6 +562,9 @@ still generated or drawn in code.
 why Linux is out: Wayland blocks three of the five primitives Otto needs).
 `docs/adr/0002-in-process-correction-llamasharp.md` is why Ollama was dropped for an
 in-process corrector, superseding 0001's post-processing decision only.
+`docs/adr/0003-read-aloud-piper.md` is why reading aloud uses Piper out of process rather
+than the better-sounding Qwen3-TTS, and carries the measurements behind it. It supersedes
+nothing — reading is a new capability, not a revision.
 `docs/distribucion-y-primer-arranque.md` is the packaging checklist `publicar.ps1` satisfies.
 The `docs/hito-*.md` files carry the measurements the invariants above rest on —
 `docs/hito-4-resultados.md` specifically measured the Ollama-era corrector and stays as

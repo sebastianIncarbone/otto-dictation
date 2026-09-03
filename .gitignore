@@ -494,6 +494,11 @@ resultados-*.md
 # Artefactos de empaquetado
 dist/
 
+# El motor de lectura, cacheado por build/publicar.ps1. Son 21 MB de un release
+# de terceros: un artefacto de empaquetado, igual que los modelos, no algo que
+# el repositorio deba acumular.
+build/.piper/
+
 # El ícono se genera con build/icono.ps1 en cada publicación. Igual que los
 # íconos de bandeja, el dibujo vive en código y no como binario commiteado.
 src/Otto.App/Otto.ico

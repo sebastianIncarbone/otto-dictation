@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Otto.App.ViewModels"
         xmlns:views="using:Otto.App.Views"
+        xmlns:tts="using:Otto.Tts"
         x:Class="Otto.App.Views.MainWindow"
         x:DataType="vm:MainViewModel"
         Title="Otto"
@@ -355,12 +356,12 @@
         <StackPanel Spacing="4">
           <TextBlock Text="Atajo" FontSize="12" Opacity="0.7" />
 
-          <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding !IsCapturingHotkey}">
+          <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding !IsCapturingDictationHotkey}">
             <TextBlock Text="{Binding HotkeyLabel}" VerticalAlignment="Center" FontWeight="SemiBold" />
             <Button Grid.Column="1" Content="Cambiar" Command="{Binding StartHotkeyCaptureCommand}" />
           </Grid>
 
-          <StackPanel Spacing="6" IsVisible="{Binding IsCapturingHotkey}">
+          <StackPanel Spacing="6" IsVisible="{Binding IsCapturingDictationHotkey}">
             <Border Classes="card" Padding="8">
               <TextBlock Text="{Binding HotkeyHint}" TextWrapping="Wrap" />
             </Border>
@@ -393,6 +394,23 @@
             <RadioButton GroupName="Apariencia" Content="Punto mínimo"
                          IsChecked="{Binding IsMinimalAppearance}" />
           </StackPanel>
+
+          <!-- La pista tiene que estar escrita porque no hay nada que la sugiera: el
+               personaje no tiene borde, ni asa, ni cambia el cursor. Antes los clicks lo
+               atravesaban, así que nadie iba a probar de arrastrarlo por las dudas.
+
+               Y el botón es el salvavidas del caso que el arrastre puede dejar sin salida.
+               OverlayPlacement ya recupera solo una posición guardada en un monitor que se
+               desconectó; esto cubre los otros: quedó detrás de algo, o simplemente en un
+               lugar del que uno se arrepiente. No espera al Guardar a propósito — quien
+               perdió de vista al personaje lo quiere de vuelta ahora, no después de
+               confiar en que algo que no ve se movió. -->
+          <TextBlock Text="Arrastralo con el mouse para ponerlo donde quieras. Mientras esté en pantalla se queda con los clicks que caigan encima suyo."
+                     FontSize="11" Opacity="0.6" TextWrapping="Wrap" Margin="0,4,0,0" />
+
+          <Button Content="Volver el personaje a su rincón" Classes="ghost"
+                  HorizontalAlignment="Left"
+                  Command="{Binding ResetCharacterPositionCommand}" />
         </StackPanel>
 
         <!-- Apagado de fábrica: Otto promete funcionar sin internet, así que la
@@ -430,6 +448,98 @@
               <TextBlock Text="minutos (0 = nunca)" VerticalAlignment="Center"
                          FontSize="12" Opacity="0.7" />
             </StackPanel>
+          </StackPanel>
+        </StackPanel>
+
+        <!-- Sin IsVisible, y la ausencia es lo interesante. El bloque de corrección de
+             arriba se esconde sin placa de video porque un modelo de 3B nunca entra en el
+             presupuesto de 2s del dictado en CPU. Piper corre en cualquier CPU a x4,6, así
+             que la lectura no tiene ninguna máquina de la que esconderse: es la primera
+             cosa opcional que Otto le ofrece a todo el mundo.
+
+             La descarga de la voz es un botón propio y no algo que hace Guardar en
+             silencio. La única regla que Otto tiene sobre la red es que decide la persona,
+             no la aplicación — por eso el chequeo de actualizaciones viene apagado y por
+             eso instalar una toma dos clicks. Que se dispare una transferencia de ~110 MB
+             porque alguien tildó un casillero sería justo lo que esa regla previene, y
+             "es más chica que la actualización" no es un principio. -->
+        <StackPanel Spacing="4">
+          <CheckBox Content="Leer en voz alta lo que esté seleccionado" IsChecked="{Binding ReadAloud}" />
+          <TextBlock Margin="26,0,0,0" FontSize="11" Opacity="0.6" TextWrapping="Wrap"
+                     Text="Corre en esta misma máquina y no necesita placa de video. Apretá el atajo una vez para que lea lo que tengas seleccionado, y otra vez para cortar." />
+
+          <StackPanel Spacing="10" Margin="26,6,0,0" IsEnabled="{Binding ReadAloud}">
+
+            <!-- El mismo control que el atajo de dictado, y no un texto fijo. La
+                 combinación vive en config.json desde el principio
+                 (Settings.ReadingModifiers/ReadingVirtualKey): lo único que faltaba era la
+                 manera de moverla, y mientras tanto este renglón anunciaba Ctrl+Alt+L
+                 aunque el archivo dijera otra cosa — un rótulo que miente es peor que uno
+                 que falta, porque nadie lo va a verificar.
+
+                 A diferencia del atajo de dictado, este toma efecto al Guardar y no en el
+                 próximo arranque: App ya toma y suelta esta combinación en caliente cada
+                 vez que se mueve el casillero de arriba. -->
+            <StackPanel Spacing="4">
+              <TextBlock Text="Atajo para leer" FontSize="12" Opacity="0.7" />
+
+              <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding !IsCapturingReadingHotkey}">
+                <TextBlock Text="{Binding ReadingHotkeyLabel}" VerticalAlignment="Center" FontWeight="SemiBold" />
+                <Button Grid.Column="1" Content="Cambiar" Command="{Binding StartReadingHotkeyCaptureCommand}" />
+              </Grid>
+
+              <StackPanel Spacing="6" IsVisible="{Binding IsCapturingReadingHotkey}">
+                <Border Classes="card" Padding="8">
+                  <TextBlock Text="{Binding HotkeyHint}" TextWrapping="Wrap" />
+                </Border>
+                <Button Content="Cancelar" HorizontalAlignment="Left" Command="{Binding CancelHotkeyCaptureCommand}" />
+              </StackPanel>
+            </StackPanel>
+
+            <StackPanel Spacing="4">
+              <TextBlock Text="Voz" FontSize="12" Opacity="0.7" />
+              <ComboBox ItemsSource="{Binding ReadingVoices}" SelectedItem="{Binding ReadingVoice}"
+                        HorizontalAlignment="Stretch">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="tts:Voice">
+                    <StackPanel Spacing="1" Margin="0,2">
+                      <TextBlock Text="{Binding Label}" />
+                      <TextBlock Text="{Binding Description}" FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+
+              <TextBlock Text="{Binding ReadingVoiceAvailability}" TextWrapping="Wrap"
+                         FontSize="11" Opacity="0.6" />
+            </StackPanel>
+
+            <!-- "Entonación" y no "Calidad": la escalera de calidades de Piper existe
+                 (x_low/low/medium/high) pero la única voz argentina del catálogo está sólo
+                 en high, así que bajar de escalón cuesta el acento. Esto cambia cómo se
+                 samplea un mismo modelo, que no cuesta ni velocidad ni acento. -->
+            <StackPanel Spacing="4">
+              <TextBlock Text="Entonación" FontSize="12" Opacity="0.7" />
+              <ComboBox ItemsSource="{Binding ReadingVoicings}" SelectedItem="{Binding ReadingVoicing}"
+                        HorizontalAlignment="Stretch">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="tts:PiperVoicing">
+                    <TextBlock Text="{Binding Label}" Margin="0,2" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </StackPanel>
+
+            <Button Content="Descargar la voz" HorizontalAlignment="Left"
+                    Command="{Binding DownloadVoiceCommand}"
+                    IsVisible="{Binding CanDownloadVoice}" />
+
+            <ProgressBar Minimum="0" Maximum="1" Value="{Binding VoiceDownloadFraction}"
+                         IsVisible="{Binding IsDownloadingVoice}" />
+
+            <TextBlock Text="{Binding ReadingStatus}" TextWrapping="Wrap"
+                       FontSize="12" Opacity="0.8"
+                       IsVisible="{Binding HasReadingStatus}" />
           </StackPanel>
         </StackPanel>
 

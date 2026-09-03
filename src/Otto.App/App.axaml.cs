@@ -8,6 +8,7 @@ using Otto.App.ViewModels;
 using Otto.App.Views;
 using Otto.Core;
 using Otto.Speech;
+using Otto.Tts;
 
 namespace Otto.App;
 
@@ -17,6 +18,22 @@ public partial class App : Application
     private TrayIcon? tray;
     private MainWindow? window;
     private CharacterWindow? character;
+
+    /// <summary>The transport card, built the first time a reading actually happens.</summary>
+    private ReadingControlsWindow? readingControls;
+
+    /// <summary>
+    /// What the last reading had to say for itself, held until something replaces it.
+    ///
+    /// <para>
+    /// Needed because the tooltip has two writers racing on one string. A reading that
+    /// finds nothing to read raises its event and then immediately transitions back to
+    /// Idle, and both land on the UI thread in that order — so a notice written directly
+    /// would be overwritten by the Idle handler microseconds later and never be seen. The
+    /// Idle handler reads this instead of assuming it has nothing to say.
+    /// </para>
+    /// </summary>
+    private string? readingNotice;
     private NativeMenuItem? characterItem;
     private NativeMenuItem? correctionItem;
 
@@ -516,6 +533,20 @@ public partial class App : Application
             // bounce between its two owners, and this is the same switch
             // shape one field over.
             view.CorrectVoseoChanged += enabled => SetCorrectionEnabled(enabled, persist: false);
+
+            // Same shape once more, one feature over. SaveSettings already wrote both to
+            // disk, so neither handler persists anything: they only tell the live objects
+            // what the user just chose.
+            view.CharacterPositionResetRequested += ReturnCharacterToCorner;
+            view.ReadAloudChanged += SetReadingEnabled;
+            view.ReadingHotkeyChanged += SetReadingHotkey;
+            view.ReadingVoiceChanged += (voice, voicing) =>
+            {
+                var synthesizer = services.GetRequiredService<PiperSynthesizer>();
+
+                synthesizer.Voice = voice;
+                synthesizer.Voicing = voicing;
+            };
             view.CorrectionIdleUnloadMinutesChanged += minutes =>
                 services.GetRequiredService<IPostProcessor>().SetIdleTimeout(
                     minutes > 0 ? TimeSpan.FromMinutes(minutes) : null);
@@ -663,8 +694,16 @@ public partial class App : Application
             {
                 if (character is null)
                 {
-                    character = new CharacterWindow(services.GetRequiredService<IOverlayStyler>(), appearance);
+                    var saved = services.GetRequiredService<Settings>();
+
+                    character = new CharacterWindow(
+                        services.GetRequiredService<IOverlayStyler>(),
+                        appearance,
+                        saved.CharacterX is { } x && saved.CharacterY is { } y ? new PixelPoint(x, y) : null);
+
+                    character.Moved += RememberCharacterPosition;
                     character.Follow(services.GetRequiredService<DictationPipeline>());
+                    character.FollowReading(services.GetRequiredService<ReadingPipeline>());
                 }
 
                 character.Show();
@@ -857,6 +896,9 @@ public partial class App : Application
 
         await pipeline.StartAsync(settings.ToBinding());
 
+        WireReadingFeedback();
+        StartReading(settings);
+
         // StartAsync only awaits the hotkey registration — the correction
         // model's own load runs deferred, in the background, and has
         // usually NOT settled by the time this line runs. This call still
@@ -867,5 +909,297 @@ public partial class App : Application
         RefreshCorrectionItem(
             services.GetRequiredService<IPostProcessor>(),
             services.GetRequiredService<ProvisioningOptions>());
+    }
+
+    /// <summary>
+    /// Registers the reading hotkey, and only when the user has asked for reading.
+    ///
+    /// <para>
+    /// Not registered when <see cref="Settings.ReadAloud"/> is off, unlike the dictation
+    /// hotkey which is always taken: an unused global combination held by Otto is one
+    /// another application cannot have, and a user who does not read aloud gets nothing
+    /// in exchange for that.
+    /// </para>
+    /// <para>
+    /// <b>A failure here is swallowed, and that is the opposite of how the dictation
+    /// hotkey is treated.</b> That one is the product — a refused registration is
+    /// surfaced to the user, because Otto with no dictation hotkey is Otto doing nothing
+    /// at all, and the silence around exactly that failure is what
+    /// <see cref="HotkeyRegistrationException"/> was added to end. Reading is optional,
+    /// so it obeys the other rule Otto has always followed: everything optional degrades
+    /// to nothing. Losing Ctrl+Alt+L to another application must not stop dictation from
+    /// starting, and it must certainly not take the tray icon down with it.
+    /// </para>
+    /// </summary>
+    /// <summary>
+    /// Gives a reading somewhere to say what happened.
+    ///
+    /// <para>
+    /// <c>ReadingPipeline</c> has published three things since it was written — its state,
+    /// "there was nothing selected", and "there is no voice installed" — and nothing was
+    /// listening to any of them. Pressing the key with no voice downloaded wrote a log
+    /// line and did nothing else at all: no icon, no tooltip, no window. "Everything
+    /// optional degrades to nothing" is about the feature stopping; it was never about the
+    /// feature going silent. The user still has to be able to tell "Otto is broken" from
+    /// "I never downloaded the voice", which is the exact distinction
+    /// <c>NothingToRead</c> and <c>Unavailable</c> were split apart to make.
+    /// </para>
+    /// <para>
+    /// The tray is the surface that is always there — the character overlay is richer, but
+    /// the user may have switched it off, and this feedback cannot be the thing that
+    /// depends on a decorative setting.
+    /// </para>
+    /// <para>
+    /// Subscribed once at startup regardless of <see cref="Settings.ReadAloud"/>: these are
+    /// handlers on an object that simply never fires them while reading is off, and wiring
+    /// them from <see cref="SetReadingEnabled"/> would add a fresh subscription on every
+    /// toggle.
+    /// </para>
+    /// </summary>
+    private void WireReadingFeedback()
+    {
+        var reading = services.GetRequiredService<ReadingPipeline>();
+        var pipeline = services.GetRequiredService<DictationPipeline>();
+
+        // Seeded from disk and written back whenever it moves, because the control that
+        // moves it floats over the reading instead of living in Ajustes — nothing else
+        // would ever persist it, and somebody who listens at x1,5 would re-choose it on
+        // every reading. Amended, never rebuilt: this writer knows about exactly one field
+        // and the settings window knows about the rest.
+        reading.Speed = Otto.Core.ReadingSpeed.Resolve(services.GetRequiredService<Settings>().ReadingSpeed);
+
+        reading.SpeedChanged += chosen =>
+        {
+            var store = services.GetRequiredService<SettingsStore>();
+
+            store.Save(store.Load() with { ReadingSpeed = chosen.Id });
+        };
+
+        reading.StateChanged += state => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            if (tray is null) return;
+
+            ShowReadingControls(state != ReadingState.Idle);
+
+            if (state != ReadingState.Idle)
+            {
+                readingNotice = null;
+                tray.ToolTipText = state == ReadingState.Paused ? "Otto — lectura en pausa" : "Otto — leyendo";
+                return;
+            }
+
+            // Handed back to the dictation state rather than to a string remembered when
+            // the reading started: a dictation can begin and end while Otto is talking,
+            // and restoring the old text would put a stale "Escuchando…" on an idle Otto.
+            tray.ToolTipText = readingNotice ?? StateShapes.Tooltip(pipeline.State);
+        });
+
+        reading.NothingToRead += () => Avalonia.Threading.Dispatcher.UIThread.Post(
+            () => readingNotice = "Otto — no había nada seleccionado");
+
+        reading.Unavailable += why => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            // A missing engine is NOT a settings problem, and treating it as one is what
+            // this branch got wrong the first time: it opened Ajustes for every failure,
+            // so somebody whose voice was already downloaded got sent to a page whose only
+            // button downloads that same voice. They pressed it, nothing changed, and the
+            // feature looked broken for a reason the UI was actively pointing away from.
+            //
+            // piper.exe ships with Otto instead of being downloaded, so nothing in Ajustes
+            // can fix its absence and the honest thing is to say so and stay out of the way.
+            if (why == SpeechAvailability.NoEngine)
+            {
+                readingNotice = "Otto — falta el motor de lectura";
+                return;
+            }
+
+            readingNotice = "Otto — falta descargar la voz";
+
+            // This one does have a fix behind it, so it goes and shows the user the fix
+            // rather than hoping somebody hovers over a tray icon. Taking focus is safe
+            // here in a way it never is for the overlay: this answers a key the user just
+            // pressed, not something happening beside an injection.
+            ShowWindow();
+
+            services.GetRequiredService<MainViewModel>().IsSettingsOpen = true;
+        });
+    }
+
+    /// <summary>
+    /// Puts the transport on screen while a reading is happening, and takes it away when
+    /// it is not.
+    ///
+    /// <para>
+    /// Only while it is happening. A transport for audio that is not playing is three dead
+    /// buttons floating over somebody's screen, and this feature is supposed to be quiet.
+    /// </para>
+    /// <para>
+    /// Built lazily, for the reason the character overlay is lazy too: somebody who never
+    /// reads aloud never pays for a window they will not see. And hidden with
+    /// <c>Hide()</c> rather than <c>Close()</c>, for the reason the character already
+    /// documents — the never-focus style is applied to the native handle in
+    /// <c>OnOpened</c>, and closing would destroy the handle and take the style with it,
+    /// so the card would come back able to steal focus.
+    /// </para>
+    /// </summary>
+    private void ShowReadingControls(bool visible)
+    {
+        if (!visible)
+        {
+            readingControls?.Hide();
+            return;
+        }
+
+        readingControls ??= new ReadingControlsWindow(
+            services.GetRequiredService<IOverlayStyler>(),
+            services.GetRequiredService<ReadingPipeline>());
+
+        // Re-read on every reading rather than once: the character may have been switched
+        // on, switched off, or swapped for a differently sized appearance since the last
+        // one, and this card's corner is measured from it.
+        readingControls.Anchor = character;
+
+        readingControls.Show();
+
+        // Again after Show, not only in OnOpened: SizeToContent means the card's own
+        // height is not known until it has been laid out, and the second and later
+        // showings never go through OnOpened at all.
+        readingControls.MoveIntoPlace();
+    }
+
+    /// <summary>
+    /// Writes down where the character was dragged to, and keeps the reading controls with
+    /// it.
+    ///
+    /// <para>
+    /// Amended, never rebuilt — this writer knows about two fields and the settings window
+    /// knows about the rest, which is the rule that stopped a save from silently resetting
+    /// the hotkey binding.
+    /// </para>
+    /// <para>
+    /// The card is moved rather than left where it was because it is anchored above the
+    /// character: it reads <c>Anchor.Position</c> when it is shown, and a drag that happens
+    /// while Otto is mid-sentence would otherwise leave the transport floating over the
+    /// corner he just left.
+    /// </para>
+    /// </summary>
+    private void RememberCharacterPosition(PixelPoint where)
+    {
+        var store = services.GetRequiredService<SettingsStore>();
+
+        store.Save(store.Load() with { CharacterX = where.X, CharacterY = where.Y });
+
+        if (readingControls is { IsVisible: true }) readingControls.MoveIntoPlace();
+    }
+
+    /// <summary>
+    /// Sends the character back to its corner, from Ajustes.
+    ///
+    /// <para>
+    /// The safety valve for a drag the user regrets, or one that put Otto behind something
+    /// permanent. <c>OverlayPlacement</c> already recovers a position whose screen has gone
+    /// away; this covers the cases that are technically on screen and still wrong.
+    /// </para>
+    /// <para>
+    /// Clears the stored position even when the overlay is switched off, so turning it back
+    /// on does not restore the spot the user just asked to forget.
+    /// </para>
+    /// </summary>
+    private void ReturnCharacterToCorner()
+    {
+        var store = services.GetRequiredService<SettingsStore>();
+
+        store.Save(store.Load() with { CharacterX = null, CharacterY = null });
+
+        character?.ReturnToCorner();
+
+        if (readingControls is { IsVisible: true }) readingControls.MoveIntoPlace();
+    }
+
+    private void StartReading(Settings settings)
+    {
+        if (!settings.ReadAloud) return;
+
+        SetReadingEnabled(true);
+    }
+
+    /// <summary>
+    /// Takes or releases the reading hotkey at runtime, so switching reading on in Ajustes
+    /// works without restarting Otto — the same thing
+    /// <see cref="SetCorrectionEnabled"/> does for the corrector, and for the same reason:
+    /// a DI graph fixed at process start cannot be rebuilt, so the live object is what
+    /// changes.
+    ///
+    /// <para>
+    /// Turning it off releases the combination rather than merely ignoring it. Otto holding
+    /// a global hotkey it will not act on is one another application cannot have, and the
+    /// user just said they do not want it.
+    /// </para>
+    /// </summary>
+    /// <summary>
+    /// Moves the reading hotkey to a combination the user just picked, without a restart.
+    ///
+    /// <para>
+    /// Dictation cannot do this — its window says "applies on the next launch" — because
+    /// <c>DictationPipeline</c> holds its registration for the life of the process. Reading
+    /// already gives its combination up and takes it again every time the checkbox moves,
+    /// so a rebind is that same pair of operations with a different argument.
+    /// </para>
+    /// <para>
+    /// A no-op while reading is switched off, deliberately. There is nothing registered to
+    /// move, and <see cref="StartReading"/> reads the stored binding — which
+    /// <c>SaveSettings</c> has already written by the time this runs — whenever it is
+    /// switched back on.
+    /// </para>
+    /// </summary>
+    private void SetReadingHotkey(HotkeyBinding binding)
+    {
+        var reading = services.GetRequiredService<ReadingPipeline>();
+
+        if (reading.RegisteredHotkey is null) return;
+
+        try
+        {
+            // Stop first, for the reason SetReadingEnabled already gives: pulling the
+            // hotkey out from under a reading in progress would leave it talking with
+            // nothing left to interrupt it.
+            reading.Stop();
+            reading.Unregister();
+            reading.Register(binding);
+        }
+        catch (Exception ex)
+        {
+            // Swallowed like every other reading registration failure: dictation is the
+            // product, reading is optional, and "everything optional degrades to nothing".
+            // The cost is a reading hotkey that stops working until the next launch, which
+            // is strictly better than taking the tray down over it.
+            services.GetRequiredService<ILogger<App>>()
+                .LogWarning(ex, "Could not move the reading hotkey; reading is left unbound");
+        }
+    }
+
+    private void SetReadingEnabled(bool enabled)
+    {
+        var reading = services.GetRequiredService<ReadingPipeline>();
+
+        try
+        {
+            if (!enabled)
+            {
+                // Stop first: releasing the hotkey out from under a reading in progress
+                // would leave it talking with nothing left to interrupt it.
+                reading.Stop();
+                reading.Unregister();
+                return;
+            }
+
+            if (reading.RegisteredHotkey is null)
+                reading.Register(services.GetRequiredService<Settings>().ToReadingBinding());
+        }
+        catch (Exception ex)
+        {
+            services.GetRequiredService<ILogger<App>>()
+                .LogWarning(ex, "Could not change the reading hotkey; dictation continues without it");
+        }
     }
 }

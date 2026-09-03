@@ -80,9 +80,13 @@ Si sólo querés el ZIP portable, volvé a correr esto con -NoInstaller.
     }
 }
 
-Write-Host "==> Limpiando salida anterior"
-if (Test-Path $OutputDir) { Remove-Item $OutputDir -Recurse -Force }
-New-Item -ItemType Directory -Force $staging | Out-Null
+# Piper se baja acá arriba por la misma razón que ISCC se busca acá arriba:
+# enterarse de que falta después de cuatro minutos de publish es tiempo tirado.
+#
+# La descarga en sí vive en traer-piper.ps1 porque tiene dos consumidores: este
+# script y Otto.App.csproj, que copia la misma caché a bin\ para que `dotnet run`
+# también pueda leer. Repetir la URL en los dos lados era repetir una version.
+$motorPiper = & (Join-Path $PSScriptRoot 'traer-piper.ps1') | Select-Object -Last 1
 
 # Antes del publish, no después: el ícono se embebe en el ejecutable en tiempo
 # de compilación, y de ahí lo heredan los accesos directos sin configurar nada.
@@ -155,6 +159,47 @@ foreach ($dll in $vcDlls) {
 
 if ($faltantes) {
     Write-Warning "No se encontraron: $($faltantes -join ', '). El ZIP va a fallar en maquinas sin el VC++ Redistributable."
+}
+
+# Después de sacar los .pdb y los runtimes ajenos, nunca antes: esos dos pasos
+# barren el staging con -Recurse y se llevarían medio Piper por delante.
+Write-Host "==> Copiando el motor de lectura"
+Copy-Item $motorPiper (Join-Path $staging 'piper') -Recurse -Force
+
+$piperExe = Join-Path $staging 'piper\piper.exe'
+$espeak = Join-Path $staging 'piper\espeak-ng-data'
+
+# Las dos mitades, no una. Un piper.exe sin su espeak-ng-data arranca, sale con
+# codigo 0 y produce un WAV mudo — el modo de falla que mas cuesta diagnosticar
+# de toda esta funcion, y el unico que un chequeo aca puede cerrar de antemano.
+# traer-piper.ps1 ya las verifico en la cache; esto verifica que la copia llego.
+if (-not (Test-Path $piperExe)) { throw "No llego piper.exe al staging: $piperExe" }
+if (-not (Test-Path $espeak)) { throw "No llego espeak-ng-data al staging: $espeak" }
+
+$piperMb = (Get-ChildItem (Join-Path $staging 'piper') -Recurse -File | Measure-Object Length -Sum).Sum / 1MB
+Write-Host ("    + piper\ ({0:N0} MB)" -f $piperMb)
+
+# Las licencias de terceros viajan con el binario, no solo con el repositorio.
+# SoundTouch.Net es LGPL y es la unica dependencia que pide algo mas que el aviso:
+# el usuario tiene que poder reemplazar el DLL. Eso se cumple porque publicamos
+# self-contained pero NO single-file ni trimmed, asi que SoundTouch.Net.dll queda
+# como ensamblado suelto al lado del ejecutable. Si alguien prende PublishSingleFile
+# esa libertad desaparece y este archivo pasa a mentir, por eso el chequeo de abajo
+# verifica que el DLL siga estando suelto.
+Write-Host "==> Copiando los avisos de terceros"
+Copy-Item (Join-Path $repo 'THIRD-PARTY-NOTICES.md') $staging -Force
+
+$soundTouch = Join-Path $staging 'SoundTouch.Net.dll'
+
+if (-not (Test-Path $soundTouch)) {
+    throw @"
+No aparecio SoundTouch.Net.dll suelto en el staging.
+
+Es la libreria LGPL que hace el control de velocidad de la lectura, y su licencia
+exige que el usuario pueda reemplazarla. Si esto falla es porque el publish la
+empaqueto adentro del ejecutable (PublishSingleFile) o la recorto (PublishTrimmed):
+hay que revertir eso, no sacar este chequeo.
+"@
 }
 
 Write-Host "==> Comprimiendo"

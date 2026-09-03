@@ -1,0 +1,42 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Otto.App.Views.ReadingControlsWindow"
+        SizeToContent="WidthAndHeight"
+        WindowDecorations="None"
+        Background="Transparent"
+        TransparencyLevelHint="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ShowActivated="False"
+        CanResize="False">
+
+  <!-- Deliberately NOT IsHitTestVisible="False", which is what CharacterWindow sets.
+       Ese es el punto entero de esta ventana: el personaje es decoración y los clicks lo
+       atraviesan, esto son botones y tienen que recibirlos. Lo que se conserva de la otra
+       es no tomar nunca el foco (ShowActivated + WS_EX_NOACTIVATE), que acá pesa más
+       todavía: si apretar pausa robara el foco, el dictado siguiente se pegaría adentro
+       de Otto en vez de en el documento que la persona estaba leyendo. -->
+  <Border Classes="card" Padding="10,8" CornerRadius="{StaticResource OttoRadiusLg}">
+    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+
+      <!-- Primero repetir, después pausa, después velocidad: en el orden en que se
+           necesitan. Lo que más se aprieta mientras alguien escucha es "repetí eso", no
+           "pará" — parar ya lo hace el atajo, y esto flota encima de lo que la persona
+           está leyendo, así que cada botón de más es superficie tapando texto. -->
+      <Button x:Name="RepeatButton" Classes="ghost mini" Content="↺"
+              ToolTip.Tip="Repetir la frase" />
+
+      <Button x:Name="PauseButton" Classes="ghost mini" Content="⏸"
+              ToolTip.Tip="Pausar" />
+
+      <Border Width="1" Margin="2,2" Background="{DynamicResource OttoBorder}" />
+
+      <!-- Un botón que cicla, no tres que seleccionan. El rótulo ES el estado: dice la
+           velocidad actual, y apretarlo pasa a la siguiente. Tres botones serían tres
+           veces la superficie para algo cuyo trabajo es no molestar. -->
+      <Button x:Name="SpeedButton" Classes="ghost mini" Content="x1"
+              ToolTip.Tip="Velocidad de lectura" />
+
+    </StackPanel>
+  </Border>
+</Window>

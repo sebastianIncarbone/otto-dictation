@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using CommunityToolkit.Mvvm.Input;
 using Otto.Core;
 using Otto.Speech;
+using Otto.Tts;
 
 namespace Otto.App.ViewModels;
 
@@ -33,6 +34,9 @@ public sealed partial class MainViewModel : ObservableObject
     /// </summary>
     private HotkeyBinding savedHotkey;
 
+    /// <inheritdoc cref="savedHotkey"/>
+    private HotkeyBinding savedReadingHotkey;
+
     /// <summary>
     /// <see cref="CorrectVoseo"/> as it was the last time it was actually
     /// acted on — either by <see cref="SaveSettings"/> raising
@@ -43,6 +47,18 @@ public sealed partial class MainViewModel : ObservableObject
     /// <see cref="CorrectVoseoChangedSinceApplied"/> needs to answer honestly.
     /// </summary>
     private bool lastAppliedCorrectVoseo;
+
+    /// <inheritdoc cref="lastAppliedCorrectVoseo"/>
+    private bool lastAppliedReadAloud;
+
+    /// <summary>
+    /// Null in every test, and Program.cs is the one place that passes it — the same
+    /// optional-dependency shape as <see cref="storage"/> and <see cref="updateInstaller"/>.
+    /// Without it the reading section reports no voice installed and offers no download,
+    /// which is the honest rendering of "there is nothing here to install through" rather
+    /// than a state the UI has to pretend cannot happen.
+    /// </summary>
+    private readonly VoiceInstaller? voiceInstaller;
 
     public MainViewModel(
         INoteRepository repository,
@@ -71,7 +87,11 @@ public sealed partial class MainViewModel : ObservableObject
         // existed. That is the honest degradation, not a hidden one — self-install
         // is already unavailable on the portable copy, so "no install offered" is
         // a state the UI has to render correctly regardless.
-        Func<UpdateInstaller>? updateInstaller = null)
+        Func<UpdateInstaller>? updateInstaller = null,
+
+        // Optional and null in every test, like the two above. See the field's own
+        // comment for what the reading section does without one.
+        VoiceInstaller? voiceInstaller = null)
     {
         this.repository = repository;
         this.pipeline = pipeline;
@@ -82,10 +102,18 @@ public sealed partial class MainViewModel : ObservableObject
         this.hotkeyAvailability = hotkeyAvailability;
         this.storage = storage;
         this.updateInstaller = updateInstaller;
+        this.voiceInstaller = voiceInstaller;
 
         startupHotkey = settings.ToBinding();
         savedHotkey = startupHotkey;
         captured = startupHotkey;
+
+        // No startupHotkey equivalent on purpose. Dictation always registers, so there is
+        // always a "what Otto is listening on" to fall back to; reading may legitimately
+        // never register at all (ReadAloud off), and inventing a fallback would have this
+        // editor claim a binding is in effect when nothing is holding it.
+        savedReadingHotkey = settings.ToReadingBinding();
+        capturedReading = savedReadingHotkey;
 
         language = settings.Language;
         startWithWindows = settings.StartWithWindows;
@@ -95,6 +123,15 @@ public sealed partial class MainViewModel : ObservableObject
         correctVoseo = settings.CorrectVoseo;
         lastAppliedCorrectVoseo = settings.CorrectVoseo;
         correctionIdleUnloadMinutes = settings.CorrectionIdleUnloadMinutes;
+
+        readAloud = settings.ReadAloud;
+        lastAppliedReadAloud = settings.ReadAloud;
+
+        // Resolved rather than looked up strictly: config.json is a file the user can edit
+        // and an older Otto has already written, so an unrecognised id falls back to the
+        // Argentine default instead of leaving this null and taking the window down.
+        readingVoice = Voices.Resolve(settings.ReadingVoice);
+        readingVoicing = PiperVoicing.Resolve(settings.ReadingVoicing);
 
         pipeline.StateChanged += OnPipelineStateChanged;
         pipeline.Saved += OnSaved;
@@ -184,6 +221,172 @@ public sealed partial class MainViewModel : ObservableObject
     /// budget on this machine is worse than no checkbox at all.
     /// </summary>
     public bool ShowCorrectionSection => provisioningOptions.HasGpu;
+
+    // ---- Lectura en voz alta ----
+
+    /// <summary>
+    /// The Configuración checkbox for reading the selection aloud.
+    ///
+    /// <para>
+    /// No <c>ShowReadingSection</c> beside it, deliberately, and the absence is the
+    /// interesting part: <see cref="ShowCorrectionSection"/> exists because a 3B model can
+    /// never load inside the dictation budget on a CPU, so offering the checkbox there
+    /// would be offering something that can never work. Piper runs on any CPU at x4,6, so
+    /// reading has no such machine to hide from — it is the first optional thing Otto
+    /// offers to everyone.
+    /// </para>
+    /// </summary>
+    [ObservableProperty] private bool readAloud;
+
+    public IReadOnlyList<Voice> ReadingVoices { get; } = Voices.All;
+
+    public IReadOnlyList<PiperVoicing> ReadingVoicings { get; } = PiperVoicing.All;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsReadingVoiceInstalled))]
+    [NotifyPropertyChangedFor(nameof(ReadingVoiceAvailability))]
+    [NotifyPropertyChangedFor(nameof(CanDownloadVoice))]
+    private Voice readingVoice;
+
+    /// <summary>
+    /// Which sampling preset reads — what is left of the "effort level" the feature was
+    /// sketched with. Not a choice of model: the only Argentine voice exists at one
+    /// quality tier, so a lighter model would cost the accent, and this product does not
+    /// get to make that trade. See <c>PiperVoicing</c>.
+    /// </summary>
+    [ObservableProperty] private PiperVoicing readingVoicing;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanDownloadVoice))]
+    private bool isDownloadingVoice;
+
+    [ObservableProperty] private double voiceDownloadFraction;
+
+    /// <summary>What the reading section has to say about itself, or empty when it has nothing.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasReadingStatus))]
+    private string readingStatus = "";
+
+    public bool HasReadingStatus => !string.IsNullOrWhiteSpace(ReadingStatus);
+
+    /// <summary>
+    /// Whether the picked voice is already on disk. False with no installer wired — every
+    /// test leaves it out — which is the honest answer rather than a crash: with nothing
+    /// to install through, no voice can be installed.
+    /// </summary>
+    public bool IsReadingVoiceInstalled => voiceInstaller?.IsInstalled(ReadingVoice) ?? false;
+
+    public bool CanDownloadVoice => voiceInstaller is not null && !IsDownloadingVoice && !IsReadingVoiceInstalled;
+
+    /// <summary>
+    /// Whether the selected voice is already here, said in words instead of left to be
+    /// inferred from a button appearing or not appearing.
+    ///
+    /// <para>
+    /// Deliberately quotes no size. The catalogue stores none either — see
+    /// <see cref="Voice.Label"/>'s comment on why a second copy of a fact only ever drifts
+    /// from the first — and the true figure arrives as <c>Content-Length</c> when the
+    /// download starts, which is where <see cref="ReadingStatus"/> already reports it. A
+    /// number typed in here would be a third copy, stale the first time the voice is
+    /// re-uploaded, and Otto has no way to check it without a network call before the
+    /// click, which is exactly the thing the offline promise forbids.
+    /// </para>
+    /// <para>
+    /// Empty with no installer at all: with nothing to install through there is no honest
+    /// answer, and guessing "not installed" would offer a reassurance nothing can keep.
+    /// </para>
+    /// </summary>
+    public string ReadingVoiceAvailability =>
+        voiceInstaller is null
+            ? ""
+            : IsReadingVoiceInstalled
+                ? "Ya está descargada en esta máquina."
+                : "Todavía no está descargada. Se baja una sola vez, y después la lectura anda sin internet.";
+
+    /// <summary>
+    /// Downloading a voice is its own button, not something <c>Guardar</c> does quietly.
+    ///
+    /// <para>
+    /// Otto's one rule about the network is that a person decides, not the application —
+    /// it is why the update check is off by default and why installing an update takes two
+    /// clicks rather than none. A ~110 MB transfer starting because somebody ticked a
+    /// checkbox and pressed Guardar would be exactly the thing that rule exists to
+    /// prevent, and "it is smaller than the update" is not a principle.
+    /// </para>
+    /// </summary>
+    [RelayCommand]
+    private async Task DownloadVoiceAsync()
+    {
+        if (voiceInstaller is null || IsDownloadingVoice) return;
+
+        var voice = ReadingVoice;
+
+        IsDownloadingVoice = true;
+        VoiceDownloadFraction = 0;
+        ReadingStatus = $"Bajando la voz {voice.Label}…";
+
+        // Marshalled to the UI thread by Progress<T> itself, captured here where the
+        // context still exists — the same reason the provisioning progress is built in
+        // App rather than inside ModelProvisioner.
+        var progress = new Progress<VoiceDownloadProgress>(report =>
+        {
+            VoiceDownloadFraction = report.Fraction;
+
+            ReadingStatus = report.Total > 0
+                ? $"Bajando {voice.Label} — {report.Downloaded / 1048576:N0} de {report.Total / 1048576:N0} MB"
+                : $"Bajando la voz {voice.Label}…";
+        });
+
+        try
+        {
+            await voiceInstaller.InstallAsync(voice, progress);
+
+            ReadingStatus = $"La voz {voice.Label} quedó lista.";
+            ReadingVoiceChanged?.Invoke(voice, ReadingVoicing);
+        }
+        catch (Exception ex)
+        {
+            // Same three states the update check insists on: "could not" is not "did not
+            // need to". A failed download has to say so, because the alternative is a
+            // checkbox that is on and a feature that silently never speaks.
+            ReadingStatus = $"No se pudo bajar la voz: {ex.Message}";
+        }
+        finally
+        {
+            IsDownloadingVoice = false;
+            OnPropertyChanged(nameof(IsReadingVoiceInstalled));
+            OnPropertyChanged(nameof(ReadingVoiceAvailability));
+            OnPropertyChanged(nameof(CanDownloadVoice));
+        }
+    }
+
+    partial void OnReadingVoiceChanged(Voice value) => ReadingStatus = "";
+
+    /// <summary>
+    /// Raised on save, and only when <see cref="ReadAloud"/> actually changed since it was
+    /// last applied — the same gate <see cref="CorrectVoseoChangedSinceApplied"/> exists
+    /// for. <c>App</c> registers or releases the reading hotkey in response, and taking a
+    /// global combination is not something to redo on every unrelated settings change.
+    /// </summary>
+    public event Action<bool>? ReadAloudChanged;
+
+    /// <inheritdoc cref="ReadAloudChanged"/>
+    public bool ReadAloudChangedSinceApplied => ReadAloud != lastAppliedReadAloud;
+
+    /// <summary>
+    /// Raised whenever the live synthesiser needs to be told which voice to use — on save,
+    /// and again the moment a download finishes so the very next reading uses the voice
+    /// that just arrived rather than waiting for another Guardar.
+    /// </summary>
+    public event Action<Voice, PiperVoicing>? ReadingVoiceChanged;
+
+    /// <summary>
+    /// Raised on save when the reading hotkey actually changed, so <c>App</c> can release
+    /// the old combination and take the new one. Gated the same way
+    /// <see cref="ReadAloudChanged"/> is, and for the same reason: re-registering a global
+    /// hotkey that did not change is work that can only fail, never succeed differently.
+    /// </summary>
+    public event Action<HotkeyBinding>? ReadingHotkeyChanged;
 
     /// <summary>
     /// Which overlay is shown. Separate from <see cref="ShowCharacter"/>, which
@@ -727,10 +930,42 @@ public sealed partial class MainViewModel : ObservableObject
     // ---- Hotkey capture ----
 
     [ObservableProperty] private HotkeyBinding captured;
+    [ObservableProperty] private HotkeyBinding capturedReading;
     [ObservableProperty] private bool isCapturingHotkey;
     [ObservableProperty] private string hotkeyHint = "";
 
+    /// <summary>
+    /// Which of Otto's two hotkeys the one capture machine is editing.
+    ///
+    /// <para>
+    /// One machine with a target, not two machines. The window-level tunnel handler marks
+    /// every key handled while <see cref="IsCapturingHotkey"/> is on — see
+    /// <see cref="OnIsSettingsOpenChanged"/> for the bug that came out of that state
+    /// outliving its UI — and two independently armed captures could both be on at once,
+    /// with the first key press committed to whichever one <c>OfferKey</c> happened to ask
+    /// about first. There is one armed state because there can only be one.
+    /// </para>
+    /// </summary>
+    private HotkeyTarget capturingTarget;
+
     partial void OnCapturedChanged(HotkeyBinding value) => OnPropertyChanged(nameof(HotkeyLabel));
+
+    partial void OnCapturedReadingChanged(HotkeyBinding value) => OnPropertyChanged(nameof(ReadingHotkeyLabel));
+
+    /// <summary>
+    /// Both editors are collapsed by the same flag, so each needs to know whether the
+    /// armed capture is <em>its</em> capture — otherwise arming the reading editor would
+    /// also swap the dictation row into its "presioná la combinación" state.
+    /// </summary>
+    partial void OnIsCapturingHotkeyChanged(bool value)
+    {
+        OnPropertyChanged(nameof(IsCapturingDictationHotkey));
+        OnPropertyChanged(nameof(IsCapturingReadingHotkey));
+    }
+
+    public bool IsCapturingDictationHotkey => IsCapturingHotkey && capturingTarget == HotkeyTarget.Dictation;
+
+    public bool IsCapturingReadingHotkey => IsCapturingHotkey && capturingTarget == HotkeyTarget.Reading;
 
     /// <summary>
     /// Closing the settings card disarms an in-flight capture.
@@ -753,6 +988,9 @@ public sealed partial class MainViewModel : ObservableObject
 
     /// <summary>The binding being edited — a pure function of <see cref="Captured"/>, never typed independently.</summary>
     public string HotkeyLabel => HotkeyLabels.For(Captured);
+
+    /// <inheritdoc cref="HotkeyLabel"/>
+    public string ReadingHotkeyLabel => HotkeyLabels.For(CapturedReading);
 
     /// <summary>
     /// What Otto is actually listening on: what <c>DictationPipeline</c> registered, or
@@ -782,8 +1020,17 @@ public sealed partial class MainViewModel : ObservableObject
     public bool HotkeyChangePending => savedHotkey != (pipeline.RegisteredHotkey ?? startupHotkey);
 
     [RelayCommand]
-    private void StartHotkeyCapture()
+    private void StartHotkeyCapture() => StartCapture(HotkeyTarget.Dictation);
+
+    [RelayCommand]
+    private void StartReadingHotkeyCapture() => StartCapture(HotkeyTarget.Reading);
+
+    private void StartCapture(HotkeyTarget target)
     {
+        // Set before the flag, not after: IsCapturingHotkey's own handler is what
+        // republishes the two derived flags, and it reads this.
+        capturingTarget = target;
+
         IsCapturingHotkey = true;
         HotkeyHint = "Presioná la combinación nueva…";
     }
@@ -802,7 +1049,12 @@ public sealed partial class MainViewModel : ObservableObject
         // save. Restoring to savedHotkey — what is actually on disk — is always safe
         // here even when nothing was ever committed, since Captured then already
         // equals savedHotkey and this is a no-op.
+        //
+        // Both are restored regardless of which one was being edited: the abandoned
+        // candidate is only ever in one of them, and restoring the untouched one is the
+        // same no-op this comment already describes.
         Captured = savedHotkey;
+        CapturedReading = savedReadingHotkey;
     }
 
     /// <summary>
@@ -847,6 +1099,22 @@ public sealed partial class MainViewModel : ObservableObject
 
         var candidate = new HotkeyBinding(modifiers, virtualKey);
 
+        // Otto's other hotkey is the one collision IHotkeyAvailability cannot report
+        // honestly: it answers "taken" for a combination Otto itself holds, and the
+        // self-conflict widening below then forgives that — correctly for the binding
+        // being edited, wrongly for the other one. Without this check, putting reading on
+        // dictation's combination is accepted here and refused by Windows at the next
+        // launch, where App.SetReadingEnabled swallows the refusal by design: the user
+        // ends up with a key that does nothing and no explanation anywhere.
+        var other = capturingTarget == HotkeyTarget.Reading ? Captured : CapturedReading;
+
+        if (candidate == other)
+        {
+            var already = capturingTarget == HotkeyTarget.Reading ? "dictar" : "leer";
+            HotkeyHint = $"{HotkeyLabels.For(candidate)} ya lo usa Otto para {already}. Probá otra combinación.";
+            return;
+        }
+
         // Compared against what Otto actually registered at startup, never the
         // stored setting — that would be accidentally right only because the DI
         // Settings singleton is never refreshed, and wrong after a failed
@@ -867,7 +1135,14 @@ public sealed partial class MainViewModel : ObservableObject
         // hide a real conflict from the user at the exact moment they need to see
         // it, which is why the fallback never applies once an alert is showing.
         var stillLoading = pipeline.RegisteredHotkey is null && !HasHotkeyAlert;
-        var isSelfConflict = candidate == pipeline.RegisteredHotkey || (stillLoading && candidate == startupHotkey);
+
+        // Reading's self-conflict is measured against what is stored, not against a
+        // RegisteredHotkey: ReadingPipeline is deliberately not a dependency of this view
+        // model, and re-picking the combination reading already holds must not come back
+        // reported as somebody else's.
+        var isSelfConflict = capturingTarget == HotkeyTarget.Reading
+            ? candidate == savedReadingHotkey
+            : candidate == pipeline.RegisteredHotkey || (stillLoading && candidate == startupHotkey);
 
         if (!isSelfConflict && !hotkeyAvailability.IsAvailable(candidate))
         {
@@ -875,7 +1150,11 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
 
-        Captured = candidate;
+        if (capturingTarget == HotkeyTarget.Reading)
+            CapturedReading = candidate;
+        else
+            Captured = candidate;
+
         IsCapturingHotkey = false;
         HotkeyHint = "";
     }
@@ -942,6 +1221,12 @@ public sealed partial class MainViewModel : ObservableObject
         CheckForUpdates = CheckForUpdates,
         CorrectVoseo = CorrectVoseo,
         CorrectionIdleUnloadMinutes = CorrectionIdleUnloadMinutes,
+        ReadAloud = ReadAloud,
+        ReadingModifiers = CapturedReading.Modifiers,
+        ReadingVirtualKey = CapturedReading.VirtualKey,
+        ReadingHotkeyLabel = ReadingHotkeyLabel,
+        ReadingVoice = ReadingVoice.Id,
+        ReadingVoicing = ReadingVoicing.Id,
     };
 
     [RelayCommand]
@@ -970,8 +1255,51 @@ public sealed partial class MainViewModel : ObservableObject
 
         CorrectionIdleUnloadMinutesChanged?.Invoke(CorrectionIdleUnloadMinutes);
 
+        // Gated for the same reason CorrectVoseoChanged is: App takes or releases a global
+        // hotkey in response, and redoing that on every unrelated settings change is work
+        // that can only fail, never succeed differently.
+        if (ReadAloudChangedSinceApplied)
+        {
+            ReadAloudChanged?.Invoke(ReadAloud);
+            lastAppliedReadAloud = ReadAloud;
+        }
+
+        // Gated, and unlike the dictation hotkey this one really does take effect now.
+        // Dictation cannot rebind live — hence HotkeyChangePending's "applies on the next
+        // launch" notice — because DictationPipeline owns its registration for the life of
+        // the process. Reading's is already taken and released at runtime by
+        // App.SetReadingEnabled every time the checkbox moves, so re-registering on a
+        // changed binding is the same operation that path already performs.
+        if (CapturedReading != savedReadingHotkey)
+        {
+            savedReadingHotkey = CapturedReading;
+            ReadingHotkeyChanged?.Invoke(CapturedReading);
+        }
+
+        // Ungated, unlike the two above: telling the synthesiser which voice to use is a
+        // field assignment, so the cheapest correct thing is to say it every time rather
+        // than track whether it changed.
+        ReadingVoiceChanged?.Invoke(ReadingVoice, ReadingVoicing);
+
         IsSettingsOpen = false;
     }
+
+    /// <summary>
+    /// Asks <c>App</c> to put the character back in its corner.
+    ///
+    /// <para>
+    /// A command rather than a field on the settings form, because it is an action and not
+    /// a preference: there is nothing to choose and nothing to save afterwards. It also
+    /// deliberately does not wait for Guardar — somebody who has lost the character behind
+    /// a window wants it back now, and making them find the save button first is asking
+    /// them to trust that the thing they cannot see moved.
+    /// </para>
+    /// </summary>
+    [RelayCommand]
+    private void ResetCharacterPosition() => CharacterPositionResetRequested?.Invoke();
+
+    /// <inheritdoc cref="ResetCharacterPositionCommand"/>
+    public event Action? CharacterPositionResetRequested;
 
     /// <summary>
     /// Reflects a change made somewhere else — the tray menu — without saving or

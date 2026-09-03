@@ -8,8 +8,7 @@
         Topmost="True"
         ShowInTaskbar="False"
         ShowActivated="False"
-        CanResize="False"
-        IsHitTestVisible="False">
+        CanResize="False">
 
   <!-- Empty on purpose: the overlay is built in code, because which of the two it
        is depends on a setting and swapping it has to detach the outgoing one. -->

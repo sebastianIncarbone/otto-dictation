@@ -70,6 +70,18 @@ public sealed class HotkeyRegistrationException(HotkeyBinding binding, bool alre
 public sealed record HotkeyBinding(HotkeyModifiers Modifiers, uint VirtualKey)
 {
     public static HotkeyBinding Default => new(HotkeyModifiers.Control | HotkeyModifiers.Alt, 0x20); // Ctrl+Alt+Espacio
+
+    /// <summary>
+    /// Ctrl+Alt+L, for <i>leer</i> — the reading trigger.
+    ///
+    /// <para>
+    /// A letter rather than another modifier-only shape, because the same constraint that
+    /// binds dictation binds this: <c>RegisterHotKey</c> needs a non-modifier key. It sits
+    /// on the same Ctrl+Alt prefix as dictation so the two read as one family, and L is
+    /// the letter a Spanish-speaking user reaches for first.
+    /// </para>
+    /// </summary>
+    public static HotkeyBinding DefaultReading => new(HotkeyModifiers.Control | HotkeyModifiers.Alt, 0x4C);
 }
 
 [Flags]
@@ -269,6 +281,20 @@ public sealed class NullPostProcessor : IPostProcessor
 public interface IOverlayStyler
 {
     void MakeClickThrough(IntPtr windowHandle);
+
+    /// <summary>
+    /// The same overlay treatment, minus the click-through: a window that floats over
+    /// everything and can be clicked, but still never takes focus.
+    ///
+    /// <para>
+    /// Separate from <see cref="MakeClickThrough"/> because the two differ by exactly one
+    /// flag and that flag is the difference between decoration and a control. The reading
+    /// controls have buttons, so clicks cannot pass through them — but the never-focus half
+    /// matters more here than it does for the character, not less: a card that took focus
+    /// when the user pressed pause would leave the next dictation pasting into Otto.
+    /// </para>
+    /// </summary>
+    void MakeNonActivating(IntPtr windowHandle);
 }
 
 /// <summary>
@@ -298,4 +324,224 @@ public interface INoteRepository
     Task UpdateAsync(long id, string title, string text, CancellationToken cancellationToken = default);
 
     Task DeleteAsync(long id, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// One rendered piece of speech, and what it cost to make.
+///
+/// <para>
+/// <see cref="Elapsed"/> against <see cref="Duration"/> is the real-time factor, and
+/// it is the number the whole reading feature rests on: above 1,0 the synthesiser
+/// generates faster than a listener consumes, so a chunked reading never runs out of
+/// audio to play. The spike measured Piper at x4,6 and Qwen3-TTS at x0,69 — which is
+/// why only one of them is wired up, and why this is carried out of the port rather
+/// than logged and forgotten inside the adapter.
+/// </para>
+/// </summary>
+public sealed record SynthesizedSpeech(string Path, TimeSpan Duration, TimeSpan Elapsed)
+{
+    public double RealTimeFactor => Elapsed > TimeSpan.Zero ? Duration / Elapsed : 0;
+}
+
+/// <summary>
+/// Turns text into an audio file on disk. The other direction of the product: Otto
+/// already listens, this is Otto reading back.
+///
+/// <para>
+/// Optional in exactly the same sense as <see cref="IPostProcessor"/>, and for the
+/// same reason: Otto has to work with nothing installed. No voice downloaded, no
+/// synthesiser binary, a failed render — <see cref="IsAvailable"/> goes false and the
+/// feature is simply absent. It can never cost the user their dictation, which is the
+/// only thing they actually launched Otto for.
+/// </para>
+/// <para>
+/// The caller supplies <c>destinationPath</c> rather than the adapter choosing one,
+/// and that is a product decision rather than a stylistic one. Read-aloud audio is
+/// temporary: it is rendered, played and deleted, and it never accumulates in the
+/// user's profile. Only if the user explicitly asks to keep a reading does the file
+/// survive, and then it is moved somewhere they chose under a name Otto composes from
+/// the voice and the note. An adapter that picked its own path would own a lifetime it
+/// has no business owning.
+/// </para>
+/// <para>
+/// Obligation on the adapter: <c>text</c> arrives as a single utterance and must be
+/// rendered as one. Splitting a long text into chunks is <see cref="ISpeechSynthesizer"/>'s
+/// caller's job — that is what buys time-to-first-sound — and an adapter that silently
+/// re-splits would produce audio the caller cannot sequence.
+/// </para>
+/// </summary>
+/// <summary>
+/// Why a reading cannot happen — or <see cref="Ready"/> when it can.
+///
+/// <para>
+/// This exists because a single <c>IsAvailable</c> bool was two conditions ANDed
+/// together, and the UI in front of it had to guess which one had failed. It guessed
+/// "voice", sent a user with a perfectly good 114 MB voice on disk to a settings page
+/// whose only button downloads that same voice, and left them pressing it. Showing
+/// somebody a fix that is not the fix is worse than showing them nothing.
+/// </para>
+/// <para>
+/// Which is the argument <see cref="ReadingPipeline.NothingToRead"/> and
+/// <see cref="ReadingPipeline.Unavailable"/> were already split apart over, one level up.
+/// The same reasoning had to reach one level down.
+/// </para>
+/// </summary>
+public enum SpeechAvailability
+{
+    Ready,
+
+    /// <summary>
+    /// <c>piper.exe</c> is not there. Nothing in Ajustes fixes this — the engine ships
+    /// with Otto rather than being downloaded, so its absence means a broken install or,
+    /// far more often, a build run straight from source where the packaging step that
+    /// assembles it has never run.
+    /// </summary>
+    NoEngine,
+
+    /// <summary>The engine is here and the selected voice is not. This one Ajustes does fix.</summary>
+    NoVoice,
+}
+
+public interface ISpeechSynthesizer
+{
+    /// <summary>
+    /// Whether a reading would actually produce sound right now, and when it would not,
+    /// which of the two halves is missing. Distinct from the user's preference, which
+    /// lives in settings — the same split <see cref="IPostProcessor.Enabled"/> and
+    /// <see cref="IPostProcessor.IsAvailable"/> already draw, and for the same reason:
+    /// "the user turned it off" and "it cannot run here" are different states the UI has
+    /// to be able to tell apart.
+    /// </summary>
+    SpeechAvailability Availability { get; }
+
+    /// <inheritdoc cref="Availability"/>
+    bool IsAvailable => Availability == SpeechAvailability.Ready;
+
+    Task<SynthesizedSpeech> SpeakAsync(string text, string destinationPath, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Does nothing, and says so. What Otto uses when no voice is installed — the
+/// read-aloud counterpart of <see cref="NullPostProcessor"/>.
+///
+/// <para>
+/// <see cref="SpeakAsync"/> throws rather than returning a silent WAV. A caller is
+/// obliged to check <see cref="IsAvailable"/> first, and handing back a valid-looking
+/// file containing nothing would turn that missed check into a reading that plays
+/// silence with no error anywhere — the exact failure shape the spike hit when
+/// <c>piper.exe</c> could not find its phoneme data.
+/// </para>
+/// </summary>
+public sealed class NullSpeechSynthesizer : ISpeechSynthesizer
+{
+    // NoEngine rather than NoVoice: this is what Program.cs wires when the platform
+    // cannot read at all, and pointing that user at a download button would be the
+    // same wrong-fix mistake one layer further out.
+    public SpeechAvailability Availability => SpeechAvailability.NoEngine;
+
+    public Task<SynthesizedSpeech> SpeakAsync(string text, string destinationPath, CancellationToken cancellationToken = default) =>
+        throw new InvalidOperationException(
+            "There is no speech synthesiser installed. Check IsAvailable before calling SpeakAsync.");
+}
+
+/// <summary>
+/// Plays one rendered fragment.
+///
+/// <para>
+/// Obligation on the adapter: return only once the audio has actually finished, and
+/// stop the sound — not merely the waiting — when the token is cancelled. Both halves
+/// are load-bearing. Returning early would let <see cref="ReadingPipeline"/> start the
+/// next fragment over the top of this one, turning a reading into two voices talking at
+/// once; and a stop that leaves the speaker running is the single most irritating way
+/// for this feature to fail, because the user has already decided they want silence.
+/// </para>
+/// </summary>
+public interface IAudioPlayer
+{
+    Task PlayAsync(string wavPath, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// How fast to play, as a multiplier over the recorded rate.
+    ///
+    /// <para>
+    /// Obligation on the adapter: <b>stretch time, do not resample.</b> Playing a 22 kHz
+    /// voice back at twice the sample rate doubles the pitch with it, and a chipmunk is
+    /// not a faster reader. It must also take effect on whatever is sounding <i>now</i>,
+    /// not at the next call: a speed control that waits for the current sentence to end
+    /// is a button the user presses twice because the first press appeared to do nothing.
+    /// </para>
+    /// <para>
+    /// Kept here rather than passed to <see cref="PlayAsync"/> precisely because of that
+    /// second half — an argument can only be read when playback starts.
+    /// </para>
+    /// </summary>
+    double Speed { get; set; }
+
+    /// <summary>Whether <see cref="Pause"/> is the state the player has been left in.</summary>
+    bool IsPaused { get; }
+
+    /// <summary>
+    /// Holds the audio where it is, without ending the fragment.
+    ///
+    /// <para>
+    /// Obligation on the adapter: the pause has to <b>survive a fragment boundary</b>.
+    /// <see cref="ReadingPipeline"/> plays a reading as a sequence of separate
+    /// <see cref="PlayAsync"/> calls, so a pause that only reaches the device currently
+    /// open silently lapses the moment the sentence ends — and the odds of a user pressing
+    /// pause exactly inside a sentence rather than between two are not the kind of thing
+    /// to build a control on.
+    /// </para>
+    /// </summary>
+    void Pause();
+
+    /// <summary>Carries on from where <see cref="Pause"/> stopped. A no-op when not paused.</summary>
+    void Resume();
+}
+
+/// <summary>
+/// Gets the text the user wants read, from wherever they are.
+///
+/// <para>
+/// One call, two behaviours, and that is deliberate. The natural gesture is to select
+/// something and press the key; the fallback is to have copied something already. An
+/// adapter is expected to try for the selection first and settle for the clipboard when
+/// there is none — which collapses what would otherwise be two hotkeys into one, with
+/// neither behaviour surprising.
+/// </para>
+/// <para>
+/// Obligation on the adapter: put the user's clipboard back. Reaching the selection
+/// means borrowing the clipboard, exactly as <see cref="ITextInjector"/> does to inject,
+/// and the user asked for a reading — not for their clipboard to be replaced by whatever
+/// happened to be on screen. Returns null when there is nothing to read.
+/// </para>
+/// </summary>
+public interface ISelectionReader
+{
+    Task<string?> ReadAsync(CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Press once to start, press again to stop. The reading counterpart of
+/// <see cref="IHotkeyService"/>, and deliberately a separate port rather than a second
+/// consumer of that one.
+///
+/// <para>
+/// Dictation is push-to-talk, so <see cref="IHotkeyService"/> has to answer the question
+/// Windows will not — has the key been let go? — by polling <c>GetAsyncKeyState</c> until
+/// it has. Reading is a tap: there is no hold, nothing to poll for, and a release event
+/// would mean nothing. Reusing the push-to-talk port would mean spinning a polling loop
+/// on every press to produce an event this feature then ignores.
+/// </para>
+/// <para>
+/// Same registration obligation as <see cref="IHotkeyService.Register"/>: a refused
+/// combination MUST throw <see cref="HotkeyRegistrationException"/> rather than leaving
+/// the user with a key that silently does nothing.
+/// </para>
+/// </summary>
+public interface ISingleShotHotkey : IDisposable
+{
+    event Action? Pressed;
+
+    void Register(HotkeyBinding binding);
+    void Unregister();
 }
