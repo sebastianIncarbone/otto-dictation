@@ -37,10 +37,12 @@ terminología técnica y frases que mezclan español e inglés. Las alternativas
 comerciales lo resuelven, pero con suscripción y mandando tu audio a servidores de
 terceros.
 
-Otto no manda nada a ningún lado. Las únicas conexiones de red en toda su vida son la
-descarga de los modelos de voz y (opcional, solo con GPU) de corrección la primera vez —
-después de eso, nunca más, salvo que vos mismo busques actualizaciones, y ahí solo baja lo
-que le pediste si además le decís que instale.
+Otto no manda nada a ningún lado. Las únicas conexiones de red en toda su vida son las
+descargas de los modelos con los que funciona: el de voz la primera vez, el de corrección
+al lado si la máquina tiene GPU, y una voz de lectura si prendés la lectura y apretás el
+botón que la baja. Después de eso, nunca más, salvo que vos mismo busques actualizaciones
+— y ahí solo baja lo que le pediste, si además le decís que instale. Todas y cada una las
+arrancaste vos.
 
 ## Qué hace
 
@@ -48,6 +50,9 @@ que le pediste si además le decís que instale.
   el cursor.
 - **Corrige al rioplatense.** Escribe `Instalá` y `corré`, no `Instala` y `corre`.
   Opcional, con un modelo local.
+- **Te lee lo que tengas seleccionado.** Seleccionás texto en cualquier lado, apretás
+  una tecla y lo escuchás en voz argentina. Opcional, y lo único opcional que no
+  necesita placa de video.
 - **Guarda todo.** Cada dictado queda como nota editable, con título, búsqueda y
   copiado de un clic. Dictar y guardar son la misma acción.
 - **Vive en la bandeja**, con un personaje animado que muestra qué está haciendo.
@@ -99,10 +104,14 @@ progreso. Una máquina sin GPU no baja el modelo de corrección: un modelo de 3B
 responder dentro del presupuesto de dictado en CPU, así que Otto ni lo ofrece. Después de
 bajar los modelos, Otto abre la ventana una vez y de ahí en más arranca directo en la bandeja.
 
+La voz de lectura **no** entra en esa cuenta: la lectura en voz alta viene apagada, y su voz
+de ~110 MB la baja un botón en la configuración cuando la prendés. Que tildar un casillero
+dispare una transferencia que no pediste es justo lo que Otto evita.
+
 <details>
 <summary><b>¿Preferís no instalar nada?</b></summary>
 
-`Otto-windows-x64.zip` (~78 MB) es la misma aplicación en versión portable:
+`Otto-windows-x64.zip` (~130 MB) es la misma aplicación en versión portable:
 descomprimila donde quieras y ejecutá `Otto.App.exe`. Sirve para un pendrive o para
 una máquina donde no podés instalar programas.
 
@@ -132,8 +141,12 @@ sí.** Reinstalar te devuelve todo tal cual, sin volver a bajar 1,6 GB.
 
 Mantené **Ctrl+Alt+Espacio**, hablá, soltá. El texto aparece donde estaba el cursor.
 
+Seleccioná texto en cualquier lado y apretá **Ctrl+Alt+L** para que te lo lea; apretalo
+de nuevo para cortar. Las dos combinaciones se pueden cambiar desde la configuración.
+
 Abrí la ventana desde la bandeja para ver tus notas, buscarlas, editarlas o
-cambiar la configuración.
+cambiar la configuración. Al personaje lo podés arrastrar a donde quieras y se queda
+donde lo dejaste.
 
 ## Corrección al rioplatense (opcional)
 
@@ -163,6 +176,34 @@ reemplazos y por qué el prompt importó más que el modelo — medido cuando la
 sobre Ollama; el mecanismo se movió al mismo proceso desde entonces
 ([ADR 0002](docs/adr/0002-in-process-correction-llamasharp.md)), el razonamiento no cambió.
 
+## Lectura en voz alta (opcional)
+
+Seleccionás texto en cualquier aplicación, apretás **Ctrl+Alt+L** y Otto te lo lee.
+Apretalo de nuevo y corta. Existe por accesibilidad antes que nada: alguien que no puede
+leer cómodo la pantalla la escucha, en su propio acento, sin que el texto salga de la
+máquina.
+
+**Es lo único opcional que no se cae sin GPU**, y esa es la razón entera del motor que
+usa. Otto usa Piper, medido en **×4,6** más rápido que el tiempo real en la misma máquina
+donde la alternativa que suena mejor, Qwen3-TTS, llega a **×0,69** — más lento que el
+habla, así que se atrasa más cuanto más lee. Un lector que no llega no es una versión
+premium, es una rota. Las mediciones están en el
+[ADR 0003](docs/adr/0003-read-aloud-piper.md).
+
+El motor viaja adentro del paquete. **La voz no**, y bajarla es un botón en la
+configuración y no algo que hace tildar un casillero: `es_AR/daniela` pesa ~110 MB, y la
+única regla que Otto tiene sobre la red es que decide la persona, no la aplicación. Hay
+cinco voces más en español —mexicanas y peninsulares— en la misma lista.
+
+Mientras está leyendo aparece una tarjeta flotando sobre la pantalla con pausa, repetir y
+velocidad (×1, ×1,5, ×2), y el personaje pone otra cara. La velocidad es un estiramiento de
+audio ya generado, no un parámetro de síntesis, así que aplica sobre la oración que estás
+escuchando y no sobre la siguiente — y el tono no se mueve con ella. La *Entonación* es la
+otra perilla, y a propósito no se llama *Calidad*: Piper publica sus voces en cuatro
+escalones de calidad, pero `daniela` existe sólo en el más alto, así que bajar un escalón
+costaría el acento. Lo que queda cambia cómo se samplea un mismo modelo, que no cuesta
+ninguna de las dos cosas.
+
 ## Limitaciones conocidas
 
 - **Solo Windows.** Linux está fuera de la v1 por una razón concreta: Wayland
@@ -174,6 +215,11 @@ sobre Ollama; el mecanismo se movió al mismo proceso desde entonces
   modo por defecto no instala ningún hook de sistema, justamente por eso.
 - **Terminales elevadas rechazan la inserción.** Un proceso sin privilegios no
   puede escribir en una ventana que sí los tiene.
+- **Leer la selección pasa por el portapapeles.** Otto le manda Ctrl+C a la aplicación
+  donde estabas, lee lo que vuelve y te deja el portapapeles tal cual estaba — pero esa
+  copia la hace la otra aplicación, así que las marcas de exclusión que Otto le pone a sus
+  propios dictados no se pueden aplicar ahí. Un gestor de portapapeles puede llegar a
+  registrar la selección.
 - **La calidad del micrófono importa más que el modelo.**
 
 ## Documentación
@@ -185,6 +231,7 @@ La documentación técnica está en inglés.
 | [Visión de producto](docs/vision-producto.md) | Qué es, para qué sirve, qué no es |
 | [ADR 0001 — Stack tecnológico](docs/adr/0001-stack-tecnologico.md) | Qué se eligió, qué se descartó y por qué |
 | [ADR 0002 — Corrección en el mismo proceso](docs/adr/0002-in-process-correction-llamasharp.md) | Por qué se sacó Ollama por un modelo en el mismo proceso, y qué cambió |
+| [ADR 0003 — Lectura en voz alta con Piper](docs/adr/0003-read-aloud-piper.md) | Por qué ganó el motor más rápido y no el que suena mejor |
 | [Hito 0 — Latencia y precisión](docs/hito-0-resultados.md) | La compuerta de viabilidad |
 | [Hito 0.5 — `initial_prompt`](docs/hito-0-5-resultados.md) | Vocabulario técnico |
 | [Hito 4 — Corrección de voseo](docs/hito-4-resultados.md) | Por qué el prompt importó más que el modelo |
@@ -198,6 +245,7 @@ Otto.Core              Puertos y orquestación. Sin código de sistema operativo
 Otto.Speech            Whisper.net: transcripción, VAD, prompt por contexto
 Otto.Storage           SQLite con FTS5: notas y búsqueda
 Otto.PostProcessing    LLamaSharp + Vulkan, en el mismo proceso: corrección al rioplatense
+Otto.Tts               Piper como proceso hijo: voces, descarga, lectura en voz alta
 Otto.Platform.Windows  P/Invoke: atajo global, inyección, portapapeles, overlay
 Otto.App               Avalonia: bandeja, ventana de notas, personaje
 ```
@@ -237,13 +285,24 @@ publicada, el chequeo de actualizaciones mentiría en silencio para siempre.
 ## Stack
 
 .NET 10 · Avalonia UI · Whisper.net (`large-v3-turbo`, runtime Vulkan) · SQLite ·
-LLamaSharp (Qwen2.5-3B-Instruct, Vulkan, opcional, requiere GPU)
+LLamaSharp (Qwen2.5-3B-Instruct, Vulkan, opcional, requiere GPU) · Piper (VITS, opcional) ·
+NAudio + SoundTouch.Net para la reproducción
 
 ## Licencia
 
 [MIT](LICENSE). Usalo, copialo, modificalo, vendelo — solo mantené el aviso de
 copyright.
 
-Todas las dependencias son MIT también: Whisper.net, Avalonia, NAudio,
-Microsoft.Data.Sqlite, SkiaSharp y CommunityToolkit.Mvvm. El modelo de Whisper no
-viaja en el ZIP; se descarga aparte y OpenAI lo liberó bajo MIT.
+Casi todas las dependencias son MIT también: Whisper.net, Avalonia, NAudio,
+Microsoft.Data.Sqlite, SkiaSharp, CommunityToolkit.Mvvm y el propio Piper. El modelo de
+Whisper no viaja en el ZIP; se descarga aparte y OpenAI lo liberó bajo MIT.
+
+Dos de los componentes que Otto **redistribuye como archivos** tienen otras condiciones, y
+[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) —que se copia al directorio de
+instalación, no sólo vive en el repo— las dice completas. `SoundTouch.Net`, que hace el
+control de velocidad de la lectura, es LGPL-2.1-or-later: queda en el directorio del
+programa como ensamblado suelto justamente para que se pueda reemplazar, y por eso Otto se
+publica self-contained pero ni single-file ni trimmed. `espeak-ng`, GPL-3.0-or-later, viene
+adentro de la release de Piper y corre como parte de `piper.exe`, un proceso aparte con el
+que Otto habla por entrada estándar en lugar de enlazarlo. Las voces de lectura son
+CC-BY-4.0 o MIT según la voz, y se descargan en vez de viajar en el paquete.
