@@ -522,6 +522,7 @@ public partial class App : Application
             // disk, so neither handler persists anything: they only tell the live objects
             // what the user just chose.
             view.ReadAloudChanged += SetReadingEnabled;
+            view.ReadingHotkeyChanged += SetReadingHotkey;
             view.ReadingVoiceChanged += (voice, voicing) =>
             {
                 var synthesizer = services.GetRequiredService<PiperSynthesizer>();
@@ -924,6 +925,48 @@ public partial class App : Application
     /// user just said they do not want it.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// Moves the reading hotkey to a combination the user just picked, without a restart.
+    ///
+    /// <para>
+    /// Dictation cannot do this — its window says "applies on the next launch" — because
+    /// <c>DictationPipeline</c> holds its registration for the life of the process. Reading
+    /// already gives its combination up and takes it again every time the checkbox moves,
+    /// so a rebind is that same pair of operations with a different argument.
+    /// </para>
+    /// <para>
+    /// A no-op while reading is switched off, deliberately. There is nothing registered to
+    /// move, and <see cref="StartReading"/> reads the stored binding — which
+    /// <c>SaveSettings</c> has already written by the time this runs — whenever it is
+    /// switched back on.
+    /// </para>
+    /// </summary>
+    private void SetReadingHotkey(HotkeyBinding binding)
+    {
+        var reading = services.GetRequiredService<ReadingPipeline>();
+
+        if (reading.RegisteredHotkey is null) return;
+
+        try
+        {
+            // Stop first, for the reason SetReadingEnabled already gives: pulling the
+            // hotkey out from under a reading in progress would leave it talking with
+            // nothing left to interrupt it.
+            reading.Stop();
+            reading.Unregister();
+            reading.Register(binding);
+        }
+        catch (Exception ex)
+        {
+            // Swallowed like every other reading registration failure: dictation is the
+            // product, reading is optional, and "everything optional degrades to nothing".
+            // The cost is a reading hotkey that stops working until the next launch, which
+            // is strictly better than taking the tray down over it.
+            services.GetRequiredService<ILogger<App>>()
+                .LogWarning(ex, "Could not move the reading hotkey; reading is left unbound");
+        }
+    }
+
     private void SetReadingEnabled(bool enabled)
     {
         var reading = services.GetRequiredService<ReadingPipeline>();

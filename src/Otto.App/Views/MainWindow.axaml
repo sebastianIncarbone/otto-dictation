@@ -356,12 +356,12 @@
         <StackPanel Spacing="4">
           <TextBlock Text="Atajo" FontSize="12" Opacity="0.7" />
 
-          <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding !IsCapturingHotkey}">
+          <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding !IsCapturingDictationHotkey}">
             <TextBlock Text="{Binding HotkeyLabel}" VerticalAlignment="Center" FontWeight="SemiBold" />
             <Button Grid.Column="1" Content="Cambiar" Command="{Binding StartHotkeyCaptureCommand}" />
           </Grid>
 
-          <StackPanel Spacing="6" IsVisible="{Binding IsCapturingHotkey}">
+          <StackPanel Spacing="6" IsVisible="{Binding IsCapturingDictationHotkey}">
             <Border Classes="card" Padding="8">
               <TextBlock Text="{Binding HotkeyHint}" TextWrapping="Wrap" />
             </Border>
@@ -449,9 +449,35 @@
         <StackPanel Spacing="4">
           <CheckBox Content="Leer en voz alta lo que esté seleccionado" IsChecked="{Binding ReadAloud}" />
           <TextBlock Margin="26,0,0,0" FontSize="11" Opacity="0.6" TextWrapping="Wrap"
-                     Text="Corre en esta misma máquina y no necesita placa de video. El atajo es Ctrl+Alt+L: apretalo una vez para que lea lo que tengas seleccionado, y otra vez para cortar." />
+                     Text="Corre en esta misma máquina y no necesita placa de video. Apretá el atajo una vez para que lea lo que tengas seleccionado, y otra vez para cortar." />
 
           <StackPanel Spacing="10" Margin="26,6,0,0" IsEnabled="{Binding ReadAloud}">
+
+            <!-- El mismo control que el atajo de dictado, y no un texto fijo. La
+                 combinación vive en config.json desde el principio
+                 (Settings.ReadingModifiers/ReadingVirtualKey): lo único que faltaba era la
+                 manera de moverla, y mientras tanto este renglón anunciaba Ctrl+Alt+L
+                 aunque el archivo dijera otra cosa — un rótulo que miente es peor que uno
+                 que falta, porque nadie lo va a verificar.
+
+                 A diferencia del atajo de dictado, este toma efecto al Guardar y no en el
+                 próximo arranque: App ya toma y suelta esta combinación en caliente cada
+                 vez que se mueve el casillero de arriba. -->
+            <StackPanel Spacing="4">
+              <TextBlock Text="Atajo para leer" FontSize="12" Opacity="0.7" />
+
+              <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding !IsCapturingReadingHotkey}">
+                <TextBlock Text="{Binding ReadingHotkeyLabel}" VerticalAlignment="Center" FontWeight="SemiBold" />
+                <Button Grid.Column="1" Content="Cambiar" Command="{Binding StartReadingHotkeyCaptureCommand}" />
+              </Grid>
+
+              <StackPanel Spacing="6" IsVisible="{Binding IsCapturingReadingHotkey}">
+                <Border Classes="card" Padding="8">
+                  <TextBlock Text="{Binding HotkeyHint}" TextWrapping="Wrap" />
+                </Border>
+                <Button Content="Cancelar" HorizontalAlignment="Left" Command="{Binding CancelHotkeyCaptureCommand}" />
+              </StackPanel>
+            </StackPanel>
 
             <StackPanel Spacing="4">
               <TextBlock Text="Voz" FontSize="12" Opacity="0.7" />
@@ -466,6 +492,9 @@
                   </DataTemplate>
                 </ComboBox.ItemTemplate>
               </ComboBox>
+
+              <TextBlock Text="{Binding ReadingVoiceAvailability}" TextWrapping="Wrap"
+                         FontSize="11" Opacity="0.6" />
             </StackPanel>
 
             <!-- "Entonación" y no "Calidad": la escalera de calidades de Piper existe

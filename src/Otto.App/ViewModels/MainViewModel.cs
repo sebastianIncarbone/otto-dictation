@@ -34,6 +34,9 @@ public sealed partial class MainViewModel : ObservableObject
     /// </summary>
     private HotkeyBinding savedHotkey;
 
+    /// <inheritdoc cref="savedHotkey"/>
+    private HotkeyBinding savedReadingHotkey;
+
     /// <summary>
     /// <see cref="CorrectVoseo"/> as it was the last time it was actually
     /// acted on — either by <see cref="SaveSettings"/> raising
@@ -104,6 +107,13 @@ public sealed partial class MainViewModel : ObservableObject
         startupHotkey = settings.ToBinding();
         savedHotkey = startupHotkey;
         captured = startupHotkey;
+
+        // No startupHotkey equivalent on purpose. Dictation always registers, so there is
+        // always a "what Otto is listening on" to fall back to; reading may legitimately
+        // never register at all (ReadAloud off), and inventing a fallback would have this
+        // editor claim a binding is in effect when nothing is holding it.
+        savedReadingHotkey = settings.ToReadingBinding();
+        capturedReading = savedReadingHotkey;
 
         language = settings.Language;
         startWithWindows = settings.StartWithWindows;
@@ -234,6 +244,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsReadingVoiceInstalled))]
+    [NotifyPropertyChangedFor(nameof(ReadingVoiceAvailability))]
     [NotifyPropertyChangedFor(nameof(CanDownloadVoice))]
     private Voice readingVoice;
 
@@ -266,6 +277,31 @@ public sealed partial class MainViewModel : ObservableObject
     public bool IsReadingVoiceInstalled => voiceInstaller?.IsInstalled(ReadingVoice) ?? false;
 
     public bool CanDownloadVoice => voiceInstaller is not null && !IsDownloadingVoice && !IsReadingVoiceInstalled;
+
+    /// <summary>
+    /// Whether the selected voice is already here, said in words instead of left to be
+    /// inferred from a button appearing or not appearing.
+    ///
+    /// <para>
+    /// Deliberately quotes no size. The catalogue stores none either — see
+    /// <see cref="Voice.Label"/>'s comment on why a second copy of a fact only ever drifts
+    /// from the first — and the true figure arrives as <c>Content-Length</c> when the
+    /// download starts, which is where <see cref="ReadingStatus"/> already reports it. A
+    /// number typed in here would be a third copy, stale the first time the voice is
+    /// re-uploaded, and Otto has no way to check it without a network call before the
+    /// click, which is exactly the thing the offline promise forbids.
+    /// </para>
+    /// <para>
+    /// Empty with no installer at all: with nothing to install through there is no honest
+    /// answer, and guessing "not installed" would offer a reassurance nothing can keep.
+    /// </para>
+    /// </summary>
+    public string ReadingVoiceAvailability =>
+        voiceInstaller is null
+            ? ""
+            : IsReadingVoiceInstalled
+                ? "Ya está descargada en esta máquina."
+                : "Todavía no está descargada. Se baja una sola vez, y después la lectura anda sin internet.";
 
     /// <summary>
     /// Downloading a voice is its own button, not something <c>Guardar</c> does quietly.
@@ -319,6 +355,7 @@ public sealed partial class MainViewModel : ObservableObject
         {
             IsDownloadingVoice = false;
             OnPropertyChanged(nameof(IsReadingVoiceInstalled));
+            OnPropertyChanged(nameof(ReadingVoiceAvailability));
             OnPropertyChanged(nameof(CanDownloadVoice));
         }
     }
@@ -342,6 +379,14 @@ public sealed partial class MainViewModel : ObservableObject
     /// that just arrived rather than waiting for another Guardar.
     /// </summary>
     public event Action<Voice, PiperVoicing>? ReadingVoiceChanged;
+
+    /// <summary>
+    /// Raised on save when the reading hotkey actually changed, so <c>App</c> can release
+    /// the old combination and take the new one. Gated the same way
+    /// <see cref="ReadAloudChanged"/> is, and for the same reason: re-registering a global
+    /// hotkey that did not change is work that can only fail, never succeed differently.
+    /// </summary>
+    public event Action<HotkeyBinding>? ReadingHotkeyChanged;
 
     /// <summary>
     /// Which overlay is shown. Separate from <see cref="ShowCharacter"/>, which
@@ -885,10 +930,42 @@ public sealed partial class MainViewModel : ObservableObject
     // ---- Hotkey capture ----
 
     [ObservableProperty] private HotkeyBinding captured;
+    [ObservableProperty] private HotkeyBinding capturedReading;
     [ObservableProperty] private bool isCapturingHotkey;
     [ObservableProperty] private string hotkeyHint = "";
 
+    /// <summary>
+    /// Which of Otto's two hotkeys the one capture machine is editing.
+    ///
+    /// <para>
+    /// One machine with a target, not two machines. The window-level tunnel handler marks
+    /// every key handled while <see cref="IsCapturingHotkey"/> is on — see
+    /// <see cref="OnIsSettingsOpenChanged"/> for the bug that came out of that state
+    /// outliving its UI — and two independently armed captures could both be on at once,
+    /// with the first key press committed to whichever one <c>OfferKey</c> happened to ask
+    /// about first. There is one armed state because there can only be one.
+    /// </para>
+    /// </summary>
+    private HotkeyTarget capturingTarget;
+
     partial void OnCapturedChanged(HotkeyBinding value) => OnPropertyChanged(nameof(HotkeyLabel));
+
+    partial void OnCapturedReadingChanged(HotkeyBinding value) => OnPropertyChanged(nameof(ReadingHotkeyLabel));
+
+    /// <summary>
+    /// Both editors are collapsed by the same flag, so each needs to know whether the
+    /// armed capture is <em>its</em> capture — otherwise arming the reading editor would
+    /// also swap the dictation row into its "presioná la combinación" state.
+    /// </summary>
+    partial void OnIsCapturingHotkeyChanged(bool value)
+    {
+        OnPropertyChanged(nameof(IsCapturingDictationHotkey));
+        OnPropertyChanged(nameof(IsCapturingReadingHotkey));
+    }
+
+    public bool IsCapturingDictationHotkey => IsCapturingHotkey && capturingTarget == HotkeyTarget.Dictation;
+
+    public bool IsCapturingReadingHotkey => IsCapturingHotkey && capturingTarget == HotkeyTarget.Reading;
 
     /// <summary>
     /// Closing the settings card disarms an in-flight capture.
@@ -911,6 +988,9 @@ public sealed partial class MainViewModel : ObservableObject
 
     /// <summary>The binding being edited — a pure function of <see cref="Captured"/>, never typed independently.</summary>
     public string HotkeyLabel => HotkeyLabels.For(Captured);
+
+    /// <inheritdoc cref="HotkeyLabel"/>
+    public string ReadingHotkeyLabel => HotkeyLabels.For(CapturedReading);
 
     /// <summary>
     /// What Otto is actually listening on: what <c>DictationPipeline</c> registered, or
@@ -940,8 +1020,17 @@ public sealed partial class MainViewModel : ObservableObject
     public bool HotkeyChangePending => savedHotkey != (pipeline.RegisteredHotkey ?? startupHotkey);
 
     [RelayCommand]
-    private void StartHotkeyCapture()
+    private void StartHotkeyCapture() => StartCapture(HotkeyTarget.Dictation);
+
+    [RelayCommand]
+    private void StartReadingHotkeyCapture() => StartCapture(HotkeyTarget.Reading);
+
+    private void StartCapture(HotkeyTarget target)
     {
+        // Set before the flag, not after: IsCapturingHotkey's own handler is what
+        // republishes the two derived flags, and it reads this.
+        capturingTarget = target;
+
         IsCapturingHotkey = true;
         HotkeyHint = "Presioná la combinación nueva…";
     }
@@ -960,7 +1049,12 @@ public sealed partial class MainViewModel : ObservableObject
         // save. Restoring to savedHotkey — what is actually on disk — is always safe
         // here even when nothing was ever committed, since Captured then already
         // equals savedHotkey and this is a no-op.
+        //
+        // Both are restored regardless of which one was being edited: the abandoned
+        // candidate is only ever in one of them, and restoring the untouched one is the
+        // same no-op this comment already describes.
         Captured = savedHotkey;
+        CapturedReading = savedReadingHotkey;
     }
 
     /// <summary>
@@ -1005,6 +1099,22 @@ public sealed partial class MainViewModel : ObservableObject
 
         var candidate = new HotkeyBinding(modifiers, virtualKey);
 
+        // Otto's other hotkey is the one collision IHotkeyAvailability cannot report
+        // honestly: it answers "taken" for a combination Otto itself holds, and the
+        // self-conflict widening below then forgives that — correctly for the binding
+        // being edited, wrongly for the other one. Without this check, putting reading on
+        // dictation's combination is accepted here and refused by Windows at the next
+        // launch, where App.SetReadingEnabled swallows the refusal by design: the user
+        // ends up with a key that does nothing and no explanation anywhere.
+        var other = capturingTarget == HotkeyTarget.Reading ? Captured : CapturedReading;
+
+        if (candidate == other)
+        {
+            var already = capturingTarget == HotkeyTarget.Reading ? "dictar" : "leer";
+            HotkeyHint = $"{HotkeyLabels.For(candidate)} ya lo usa Otto para {already}. Probá otra combinación.";
+            return;
+        }
+
         // Compared against what Otto actually registered at startup, never the
         // stored setting — that would be accidentally right only because the DI
         // Settings singleton is never refreshed, and wrong after a failed
@@ -1025,7 +1135,14 @@ public sealed partial class MainViewModel : ObservableObject
         // hide a real conflict from the user at the exact moment they need to see
         // it, which is why the fallback never applies once an alert is showing.
         var stillLoading = pipeline.RegisteredHotkey is null && !HasHotkeyAlert;
-        var isSelfConflict = candidate == pipeline.RegisteredHotkey || (stillLoading && candidate == startupHotkey);
+
+        // Reading's self-conflict is measured against what is stored, not against a
+        // RegisteredHotkey: ReadingPipeline is deliberately not a dependency of this view
+        // model, and re-picking the combination reading already holds must not come back
+        // reported as somebody else's.
+        var isSelfConflict = capturingTarget == HotkeyTarget.Reading
+            ? candidate == savedReadingHotkey
+            : candidate == pipeline.RegisteredHotkey || (stillLoading && candidate == startupHotkey);
 
         if (!isSelfConflict && !hotkeyAvailability.IsAvailable(candidate))
         {
@@ -1033,7 +1150,11 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
 
-        Captured = candidate;
+        if (capturingTarget == HotkeyTarget.Reading)
+            CapturedReading = candidate;
+        else
+            Captured = candidate;
+
         IsCapturingHotkey = false;
         HotkeyHint = "";
     }
@@ -1101,6 +1222,9 @@ public sealed partial class MainViewModel : ObservableObject
         CorrectVoseo = CorrectVoseo,
         CorrectionIdleUnloadMinutes = CorrectionIdleUnloadMinutes,
         ReadAloud = ReadAloud,
+        ReadingModifiers = CapturedReading.Modifiers,
+        ReadingVirtualKey = CapturedReading.VirtualKey,
+        ReadingHotkeyLabel = ReadingHotkeyLabel,
         ReadingVoice = ReadingVoice.Id,
         ReadingVoicing = ReadingVoicing.Id,
     };
@@ -1138,6 +1262,18 @@ public sealed partial class MainViewModel : ObservableObject
         {
             ReadAloudChanged?.Invoke(ReadAloud);
             lastAppliedReadAloud = ReadAloud;
+        }
+
+        // Gated, and unlike the dictation hotkey this one really does take effect now.
+        // Dictation cannot rebind live — hence HotkeyChangePending's "applies on the next
+        // launch" notice — because DictationPipeline owns its registration for the life of
+        // the process. Reading's is already taken and released at runtime by
+        // App.SetReadingEnabled every time the checkbox moves, so re-registering on a
+        // changed binding is the same operation that path already performs.
+        if (CapturedReading != savedReadingHotkey)
+        {
+            savedReadingHotkey = CapturedReading;
+            ReadingHotkeyChanged?.Invoke(CapturedReading);
         }
 
         // Ungated, unlike the two above: telling the synthesiser which voice to use is a
