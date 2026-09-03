@@ -989,14 +989,28 @@ public partial class App : Application
         reading.NothingToRead += () => Avalonia.Threading.Dispatcher.UIThread.Post(
             () => readingNotice = "Otto — no había nada seleccionado");
 
-        reading.Unavailable += () => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        reading.Unavailable += why => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
+            // A missing engine is NOT a settings problem, and treating it as one is what
+            // this branch got wrong the first time: it opened Ajustes for every failure,
+            // so somebody whose voice was already downloaded got sent to a page whose only
+            // button downloads that same voice. They pressed it, nothing changed, and the
+            // feature looked broken for a reason the UI was actively pointing away from.
+            //
+            // piper.exe ships with Otto instead of being downloaded, so nothing in Ajustes
+            // can fix its absence and the honest thing is to say so and stay out of the way.
+            if (why == SpeechAvailability.NoEngine)
+            {
+                readingNotice = "Otto — falta el motor de lectura";
+                return;
+            }
+
             readingNotice = "Otto — falta descargar la voz";
 
-            // The only one of the three with a fix behind it, so it goes and shows the
-            // user the fix instead of hoping somebody hovers over a tray icon. Taking
-            // focus is safe here in a way it never is for the overlay: this is the answer
-            // to a key the user just pressed, not something happening beside an injection.
+            // This one does have a fix behind it, so it goes and shows the user the fix
+            // rather than hoping somebody hovers over a tray icon. Taking focus is safe
+            // here in a way it never is for the overlay: this answers a key the user just
+            // pressed, not something happening beside an injection.
             ShowWindow();
 
             services.GetRequiredService<MainViewModel>().IsSettingsOpen = true;

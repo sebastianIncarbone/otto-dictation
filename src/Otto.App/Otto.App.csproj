@@ -52,4 +52,33 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!--
+    El motor de lectura, para que `dotnet run` tambien pueda leer.
+
+    Antes de esto no podia: piper.exe solo aparecia en el staging de publicar.ps1,
+    asi que corriendo desde el codigo fuente la lectura estaba muerta y el sintoma
+    era una tecla que no hacia nada visible. El diagnostico cuesta caro porque todo
+    lo demas — el atajo, el pipeline, la voz descargada — estaba bien.
+
+    Copia condicional y NUNCA una descarga. Compilar no puede depender de la red:
+    quien quiera la lectura en su build de desarrollo corre build\traer-piper.ps1
+    una vez y a partir de ahi la cache esta. Sin la cache el glob queda vacio, el
+    Copy no hace nada, y Otto lo reporta en tiempo de ejecucion como
+    SpeechAvailability.NoEngine — que es exactamente lo que paso, y ahora se dice
+    con el nombre correcto en vez de culpar a la voz.
+  -->
+  <Target Name="CopiarMotorDeLectura" AfterTargets="Build">
+    <ItemGroup>
+      <MotorDeLectura Include="$(MSBuildThisFileDirectory)..\..\build\.piper\piper\**\*" />
+    </ItemGroup>
+
+    <Copy Condition="'@(MotorDeLectura)' != ''"
+          SourceFiles="@(MotorDeLectura)"
+          DestinationFiles="@(MotorDeLectura->'$(OutDir)piper\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+
+    <Message Condition="'@(MotorDeLectura)' == ''" Importance="normal"
+             Text="Sin motor de lectura en build\.piper: la lectura en voz alta no va a sonar. Corre build\traer-piper.ps1 una vez." />
+  </Target>
+
 </Project>

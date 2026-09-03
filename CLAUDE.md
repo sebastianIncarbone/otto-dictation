@@ -15,7 +15,17 @@ dotnet test
 .\build\publicar.ps1 -Version 0.2.0
 .\build\publicar.ps1 -NoInstaller  # portable ZIP only
 .\build\icono.ps1                  # regenerate src\Otto.App\Otto.ico on its own
+.\build\traer-piper.ps1              # once, so reading works in a dev build
 ```
+
+**`dotnet run` cannot read aloud until `traer-piper.ps1` has been run once.**
+`piper.exe` ships with Otto rather than being downloaded at runtime, and only
+`publicar.ps1` used to assemble it — into the publish staging, never into
+`bin\`. So reading from a source build was dead, and the symptom was a key that did
+nothing visible while the hotkey, the pipeline and the downloaded voice were all fine.
+The script caches into `build\.piper` and `Otto.App.csproj` copies that into the output
+on build; with no cache the copy is a no-op and Otto reports
+`SpeechAvailability.NoEngine` at runtime. Building never touches the network.
 
 Packaging needs Inno Setup (`winget install JRSoftware.InnoSetup`). `publicar.ps1`
 looks for `ISCC.exe` **before** compiling anything and throws if it is missing —
@@ -268,6 +278,17 @@ at the point of enforcement — read the surrounding comment before overriding o
   handler is a genuine two-way toggle (`Off` → on, `Ready`/`Loading` → off) that only falls back
   to the original single "reintentar" action for `Missing`/`Failed`, where the user already
   wants correction on and a click means "try again," not "give up."
+- **"It cannot read" has two causes and they must not be collapsed into one bool.**
+  `ISpeechSynthesizer.Availability` returns `SpeechAvailability` — `Ready`,
+  `NoEngine` or `NoVoice` — and `IsAvailable` is derived from it. It used to be a
+  single bool ANDing `File.Exists(piper.exe)` with `Voice.IsInstalled`, and the UI in
+  front of it guessed "voice": a user whose 114 MB voice was already on disk got sent to
+  a settings page whose only button downloads that same voice, pressed it, and watched
+  nothing change. **Only `NoVoice` opens Ajustes.** Nothing there fixes a missing engine,
+  so pointing at it is worse than saying nothing — which is the argument
+  `NothingToRead` and `Unavailable` were already split over one level up, applied one
+  level down. `Availability` checks the engine first for the same reason: without it the
+  voice is irrelevant.
 - **Reading aloud is the first optional thing that does not vanish without a GPU, and that
   is the point of the engine choice.** `Otto.Tts` runs `piper.exe` as a child process, one
   per fragment. It was measured against Qwen3-TTS over the same corpus: Piper x4,6, Qwen

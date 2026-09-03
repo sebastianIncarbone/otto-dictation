@@ -127,14 +127,36 @@ public class ReadingPipelineTests
         // pisándole la selección al usuario para nada.
         var world = new World { Selection = { Text = "algo" } };
 
-        world.Synthesizer.Available = false;
+        world.Synthesizer.Availability = SpeechAvailability.NoVoice;
 
-        var unavailable = false;
-        world.Pipeline.Unavailable += () => unavailable = true;
+        SpeechAvailability? reported = null;
+        world.Pipeline.Unavailable += why => reported = why;
 
         await world.ToggleAndWaitAsync();
 
-        Assert.True(unavailable);
+        Assert.Equal(SpeechAvailability.NoVoice, reported);
+        Assert.Equal(0, world.Selection.Reads);
+        Assert.Empty(world.Player.Played);
+    }
+
+    [Fact]
+    public async Task Sin_motor_lo_dice_y_no_culpa_a_la_voz()
+    {
+        // El bug que este test cierra, encontrado corriendo la app: la voz estaba bajada
+        // (114 MB en disco) y lo que faltaba era piper.exe, pero IsAvailable era un solo
+        // bool con las dos condiciones adentro. La UI adivinó "falta la voz" y mandó al
+        // usuario a una pantalla cuyo único botón baja esa misma voz. Nada en Ajustes
+        // arregla un motor ausente, así que decir "voz" ahí es peor que no decir nada.
+        var world = new World { Selection = { Text = "algo" } };
+
+        world.Synthesizer.Availability = SpeechAvailability.NoEngine;
+
+        SpeechAvailability? reported = null;
+        world.Pipeline.Unavailable += why => reported = why;
+
+        await world.ToggleAndWaitAsync();
+
+        Assert.Equal(SpeechAvailability.NoEngine, reported);
         Assert.Equal(0, world.Selection.Reads);
         Assert.Empty(world.Player.Played);
     }
@@ -491,7 +513,12 @@ public class ReadingPipelineTests
     {
         private readonly Lock gate = new();
 
-        public bool Available { get; set; } = true;
+        /// <summary>
+        /// Por qué no se puede leer, o Ready cuando sí. Reemplaza al bool de antes: el
+        /// pipeline ahora tiene que poder distinguir "falta el motor" de "falta la voz",
+        /// porque solo una de las dos se arregla desde Ajustes.
+        /// </summary>
+        public SpeechAvailability Availability { get; set; } = SpeechAvailability.Ready;
 
         public bool Fail { get; set; }
 
@@ -499,8 +526,6 @@ public class ReadingPipelineTests
 
         /// <summary>Las carpetas temporales que tocó, para verificar que se borren.</summary>
         public List<string> Folders { get; } = [];
-
-        public bool IsAvailable => Available;
 
         public Task<SynthesizedSpeech> SpeakAsync(string text, string destinationPath, CancellationToken cancellationToken = default)
         {

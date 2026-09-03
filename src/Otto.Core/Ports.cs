@@ -370,17 +370,52 @@ public sealed record SynthesizedSpeech(string Path, TimeSpan Duration, TimeSpan 
 /// re-splits would produce audio the caller cannot sequence.
 /// </para>
 /// </summary>
+/// <summary>
+/// Why a reading cannot happen — or <see cref="Ready"/> when it can.
+///
+/// <para>
+/// This exists because a single <c>IsAvailable</c> bool was two conditions ANDed
+/// together, and the UI in front of it had to guess which one had failed. It guessed
+/// "voice", sent a user with a perfectly good 114 MB voice on disk to a settings page
+/// whose only button downloads that same voice, and left them pressing it. Showing
+/// somebody a fix that is not the fix is worse than showing them nothing.
+/// </para>
+/// <para>
+/// Which is the argument <see cref="ReadingPipeline.NothingToRead"/> and
+/// <see cref="ReadingPipeline.Unavailable"/> were already split apart over, one level up.
+/// The same reasoning had to reach one level down.
+/// </para>
+/// </summary>
+public enum SpeechAvailability
+{
+    Ready,
+
+    /// <summary>
+    /// <c>piper.exe</c> is not there. Nothing in Ajustes fixes this — the engine ships
+    /// with Otto rather than being downloaded, so its absence means a broken install or,
+    /// far more often, a build run straight from source where the packaging step that
+    /// assembles it has never run.
+    /// </summary>
+    NoEngine,
+
+    /// <summary>The engine is here and the selected voice is not. This one Ajustes does fix.</summary>
+    NoVoice,
+}
+
 public interface ISpeechSynthesizer
 {
     /// <summary>
-    /// True when a reading would actually produce sound right now: the engine is
-    /// present and a voice is installed. Distinct from the user's preference, which
-    /// lives in settings — the same two-boolean split <see cref="IPostProcessor.Enabled"/>
-    /// and <see cref="IPostProcessor.IsAvailable"/> already draw, and for the same
-    /// reason: "the user turned it off" and "it cannot run here" are different states
-    /// that the UI has to be able to tell apart.
+    /// Whether a reading would actually produce sound right now, and when it would not,
+    /// which of the two halves is missing. Distinct from the user's preference, which
+    /// lives in settings — the same split <see cref="IPostProcessor.Enabled"/> and
+    /// <see cref="IPostProcessor.IsAvailable"/> already draw, and for the same reason:
+    /// "the user turned it off" and "it cannot run here" are different states the UI has
+    /// to be able to tell apart.
     /// </summary>
-    bool IsAvailable { get; }
+    SpeechAvailability Availability { get; }
+
+    /// <inheritdoc cref="Availability"/>
+    bool IsAvailable => Availability == SpeechAvailability.Ready;
 
     Task<SynthesizedSpeech> SpeakAsync(string text, string destinationPath, CancellationToken cancellationToken = default);
 }
@@ -399,7 +434,10 @@ public interface ISpeechSynthesizer
 /// </summary>
 public sealed class NullSpeechSynthesizer : ISpeechSynthesizer
 {
-    public bool IsAvailable => false;
+    // NoEngine rather than NoVoice: this is what Program.cs wires when the platform
+    // cannot read at all, and pointing that user at a download button would be the
+    // same wrong-fix mistake one layer further out.
+    public SpeechAvailability Availability => SpeechAvailability.NoEngine;
 
     public Task<SynthesizedSpeech> SpeakAsync(string text, string destinationPath, CancellationToken cancellationToken = default) =>
         throw new InvalidOperationException(

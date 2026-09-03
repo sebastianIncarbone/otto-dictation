@@ -62,7 +62,20 @@ public sealed class PiperSynthesizer(TtsOptions options, ILogger<PiperSynthesize
     /// at any moment, and this has to become true the instant it does.
     /// </para>
     /// </summary>
-    public bool IsAvailable => File.Exists(options.ExecutablePath) && Voice.IsInstalled(options.VoicesDirectory);
+    public SpeechAvailability Availability
+    {
+        get
+        {
+            // Engine first, and the order is the message. Without the engine the voice is
+            // irrelevant — reporting a missing voice to somebody whose voice is sitting on
+            // disk sends them to press a download button that will never help.
+            if (!File.Exists(options.ExecutablePath)) return SpeechAvailability.NoEngine;
+
+            return Voice.IsInstalled(options.VoicesDirectory)
+                ? SpeechAvailability.Ready
+                : SpeechAvailability.NoVoice;
+        }
+    }
 
     public async Task<SynthesizedSpeech> SpeakAsync(
         string text, string destinationPath, CancellationToken cancellationToken = default)

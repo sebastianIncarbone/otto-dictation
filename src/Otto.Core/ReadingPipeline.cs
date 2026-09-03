@@ -113,12 +113,19 @@ public sealed class ReadingPipeline : IDisposable
     public event Action? NothingToRead;
 
     /// <summary>
-    /// The key was pressed and there is no voice installed to answer with. Separate from
+    /// The key was pressed and there is nothing to answer with. Separate from
     /// <see cref="NothingToRead"/> because the two need different answers: one is "select
-    /// something first", the other is "go to settings and download a voice", and a single
-    /// message covering both would be wrong half the time.
+    /// something first", the other is about the machine, and a single message covering
+    /// both would be wrong half the time.
+    ///
+    /// <para>
+    /// Carries <see cref="SpeechAvailability"/> rather than firing bare, because that same
+    /// argument applies inside this event too. A missing engine and a missing voice are
+    /// not one situation: only one of them has a button in Ajustes that fixes it, and a
+    /// handler that cannot tell them apart will send the other user to press it anyway.
+    /// </para>
     /// </summary>
-    public event Action? Unavailable;
+    public event Action<SpeechAvailability>? Unavailable;
 
     /// <summary>
     /// What Otto actually registered with Windows for reading — the same contract as
@@ -257,10 +264,10 @@ public sealed class ReadingPipeline : IDisposable
     {
         try
         {
-            if (!synthesizer.IsAvailable)
+            if (synthesizer.Availability is var availability && availability != SpeechAvailability.Ready)
             {
-                log.LogInformation("The reading was asked for with no voice available");
-                Unavailable?.Invoke();
+                log.LogInformation("The reading was asked for but it is not available: {Reason}", availability);
+                Unavailable?.Invoke(availability);
                 return;
             }
 

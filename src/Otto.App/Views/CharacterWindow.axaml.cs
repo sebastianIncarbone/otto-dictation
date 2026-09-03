@@ -180,7 +180,7 @@ public partial class CharacterWindow : Window
         reading.NothingToRead += () =>
             Dispatcher.UIThread.Post(() => character?.React(OttoPose.Annoyed, 1.8));
 
-        reading.Unavailable += () =>
+        reading.Unavailable += _ =>
             Dispatcher.UIThread.Post(() => character?.React(OttoPose.Startled, 1.8));
     }
 
