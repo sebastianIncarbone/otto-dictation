@@ -950,14 +950,28 @@ public partial class App : Application
         var reading = services.GetRequiredService<ReadingPipeline>();
         var pipeline = services.GetRequiredService<DictationPipeline>();
 
+        // Seeded from disk and written back whenever it moves, because the control that
+        // moves it floats over the reading instead of living in Ajustes — nothing else
+        // would ever persist it, and somebody who listens at x1,5 would re-choose it on
+        // every reading. Amended, never rebuilt: this writer knows about exactly one field
+        // and the settings window knows about the rest.
+        reading.Speed = Otto.Core.ReadingSpeed.Resolve(services.GetRequiredService<Settings>().ReadingSpeed);
+
+        reading.SpeedChanged += chosen =>
+        {
+            var store = services.GetRequiredService<SettingsStore>();
+
+            store.Save(store.Load() with { ReadingSpeed = chosen.Id });
+        };
+
         reading.StateChanged += state => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
             if (tray is null) return;
 
-            if (state == ReadingState.Reading)
+            if (state != ReadingState.Idle)
             {
                 readingNotice = null;
-                tray.ToolTipText = "Otto — leyendo";
+                tray.ToolTipText = state == ReadingState.Paused ? "Otto — lectura en pausa" : "Otto — leyendo";
                 return;
             }
 

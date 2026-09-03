@@ -407,6 +407,43 @@ public sealed class NullSpeechSynthesizer : ISpeechSynthesizer
 public interface IAudioPlayer
 {
     Task PlayAsync(string wavPath, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// How fast to play, as a multiplier over the recorded rate.
+    ///
+    /// <para>
+    /// Obligation on the adapter: <b>stretch time, do not resample.</b> Playing a 22 kHz
+    /// voice back at twice the sample rate doubles the pitch with it, and a chipmunk is
+    /// not a faster reader. It must also take effect on whatever is sounding <i>now</i>,
+    /// not at the next call: a speed control that waits for the current sentence to end
+    /// is a button the user presses twice because the first press appeared to do nothing.
+    /// </para>
+    /// <para>
+    /// Kept here rather than passed to <see cref="PlayAsync"/> precisely because of that
+    /// second half — an argument can only be read when playback starts.
+    /// </para>
+    /// </summary>
+    double Speed { get; set; }
+
+    /// <summary>Whether <see cref="Pause"/> is the state the player has been left in.</summary>
+    bool IsPaused { get; }
+
+    /// <summary>
+    /// Holds the audio where it is, without ending the fragment.
+    ///
+    /// <para>
+    /// Obligation on the adapter: the pause has to <b>survive a fragment boundary</b>.
+    /// <see cref="ReadingPipeline"/> plays a reading as a sequence of separate
+    /// <see cref="PlayAsync"/> calls, so a pause that only reaches the device currently
+    /// open silently lapses the moment the sentence ends — and the odds of a user pressing
+    /// pause exactly inside a sentence rather than between two are not the kind of thing
+    /// to build a control on.
+    /// </para>
+    /// </summary>
+    void Pause();
+
+    /// <summary>Carries on from where <see cref="Pause"/> stopped. A no-op when not paused.</summary>
+    void Resume();
 }
 
 /// <summary>

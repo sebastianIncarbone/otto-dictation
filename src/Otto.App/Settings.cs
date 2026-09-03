@@ -109,6 +109,20 @@ public sealed record Settings
     /// </summary>
     public string ReadingVoicing { get; init; } = PiperVoicing.Natural.Id;
 
+    /// <summary>
+    /// Playback speed for a reading, as an id rather than a number — same shape and same
+    /// reason as the two fields above.
+    ///
+    /// <para>
+    /// Stored at all because the control that moves it floats over the reading rather than
+    /// living in Ajustes: somebody who reads everything at x1,5 would otherwise re-choose
+    /// it on every single reading. Written by <c>App</c> when the card changes it, which
+    /// is why it is one more field that <c>MainViewModel.ApplyTo</c> must not clobber —
+    /// see the amend-never-rebuild rule.
+    /// </para>
+    /// </summary>
+    public string ReadingSpeed { get; init; } = Otto.Core.ReadingSpeed.Normal.Id;
+
     /// <summary>True when no settings file existed yet, so the window can introduce itself.</summary>
     [JsonIgnore] public bool IsFirstRun { get; init; }
 

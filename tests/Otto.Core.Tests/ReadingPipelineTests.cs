@@ -240,6 +240,208 @@ public class ReadingPipelineTests
         Assert.Contains(world.Synthesizer.Spoken, text => text.Contains("nota", StringComparison.Ordinal));
     }
 
+    // ---- Transporte: pausa, repetir, velocidad ----
+
+    [Fact]
+    public async Task Pausar_frena_la_lectura_y_seguir_la_reanuda()
+    {
+        var world = new World { Selection = { Text = "Algo para leer en voz alta." } };
+        world.Player.Block = true;
+
+        var idle = world.WhenIdle();
+        world.Pipeline.Toggle();
+
+        await WaitUntilAsync(() => world.Player.Played.Count > 0);
+
+        world.Pipeline.Pause();
+
+        Assert.Equal(ReadingState.Paused, world.Pipeline.State);
+        Assert.True(world.Player.IsPaused);
+
+        world.Pipeline.Resume();
+
+        Assert.Equal(ReadingState.Reading, world.Pipeline.State);
+        Assert.False(world.Player.IsPaused);
+
+        world.Pipeline.Stop();
+        await idle.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public async Task Pausar_no_es_una_tercera_forma_de_cortar()
+    {
+        // La única regla de esta clase: mientras hay una lectura, cualquier cosa que
+        // arrancaría una la corta. Tiene que seguir queriendo decir lo mismo con la
+        // lectura pausada, o el usuario necesita acordarse de en qué estado la dejó para
+        // saber qué hace el atajo.
+        var world = new World { Selection = { Text = "Algo para leer en voz alta." } };
+        world.Player.Block = true;
+
+        var idle = world.WhenIdle();
+        world.Pipeline.Toggle();
+
+        await WaitUntilAsync(() => world.Player.Played.Count > 0);
+
+        world.Pipeline.Pause();
+        world.Pipeline.Toggle();
+
+        await idle.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(ReadingState.Idle, world.Pipeline.State);
+    }
+
+    [Fact]
+    public async Task Repetir_vuelve_a_reproducir_la_misma_frase()
+    {
+        var world = new World { Selection = { Text = "Algo para leer en voz alta." } };
+        world.Player.Block = true;
+
+        var idle = world.WhenIdle();
+        world.Pipeline.Toggle();
+
+        await WaitUntilAsync(() => world.Player.Played.Count == 1);
+
+        world.Pipeline.Repeat();
+
+        await WaitUntilAsync(() => world.Player.Played.Count == 2);
+
+        // El mismo archivo las dos veces: repetir es un segundo PlayAsync sobre el WAV que
+        // ya está en disco, no un segundo viaje por Piper.
+        Assert.Equal(world.Player.Played[0], world.Player.Played[1]);
+        Assert.Single(world.Synthesizer.Spoken, text => text.Contains("leer", StringComparison.Ordinal));
+
+        world.Pipeline.Stop();
+        await idle.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public async Task Repetir_desde_la_pausa_vuelve_a_sonar()
+    {
+        // El usuario pidió volver a escucharlo. Un repetir que dejara el fragmento armado
+        // pero en silencio se ve exactamente igual que un botón muerto.
+        var world = new World { Selection = { Text = "Algo para leer en voz alta." } };
+        world.Player.Block = true;
+
+        var idle = world.WhenIdle();
+        world.Pipeline.Toggle();
+
+        await WaitUntilAsync(() => world.Player.Played.Count == 1);
+
+        world.Pipeline.Pause();
+        world.Pipeline.Repeat();
+
+        await WaitUntilAsync(() => world.Player.Played.Count == 2);
+
+        Assert.Equal(ReadingState.Reading, world.Pipeline.State);
+        Assert.False(world.Player.IsPaused);
+
+        world.Pipeline.Stop();
+        await idle.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public async Task Cortar_no_se_confunde_con_repetir()
+    {
+        // Los dos cancelan el fragmento. Si el catch se comiera las dos cancelaciones,
+        // cada corte se volvería un avance silencioso al fragmento siguiente.
+        var world = new World { Selection = { Text = LongText } };
+        world.Player.Block = true;
+
+        var idle = world.WhenIdle();
+        world.Pipeline.Toggle();
+
+        await WaitUntilAsync(() => world.Player.Played.Count == 1);
+
+        world.Pipeline.Stop();
+        await idle.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Single(world.Player.Played);
+    }
+
+    [Fact]
+    public async Task Empezar_una_lectura_nueva_limpia_una_pausa_vieja()
+    {
+        // Cortar deja el reproductor pausado a propósito — reanudar algo que se está por
+        // desarmar es un ruido en cada corte. El precio es que la lectura siguiente tiene
+        // que limpiarlo, o nace muda.
+        var world = new World { Selection = { Text = "Algo para leer en voz alta." } };
+        world.Player.Block = true;
+
+        var first = world.WhenIdle();
+        world.Pipeline.Toggle();
+
+        await WaitUntilAsync(() => world.Player.Played.Count == 1);
+
+        world.Pipeline.Pause();
+        world.Pipeline.Stop();
+
+        await first.WaitAsync(TimeSpan.FromSeconds(10));
+
+        world.Player.Block = false;
+        await world.ToggleAndWaitAsync();
+
+        Assert.False(world.Player.IsPaused);
+    }
+
+    [Fact]
+    public void La_velocidad_elegida_llega_al_reproductor()
+    {
+        var world = new World();
+
+        world.Pipeline.Speed = ReadingSpeed.Faster;
+
+        Assert.Equal(2.0, world.Player.Speed);
+        Assert.Equal(ReadingSpeed.Faster, world.Pipeline.Speed);
+    }
+
+    [Fact]
+    public void Elegir_la_velocidad_que_ya_estaba_no_avisa_a_nadie()
+    {
+        var world = new World();
+        var changes = 0;
+
+        world.Pipeline.SpeedChanged += _ => changes++;
+
+        world.Pipeline.Speed = ReadingSpeed.Normal;
+
+        Assert.Equal(0, changes);
+    }
+
+    [Fact]
+    public void La_velocidad_cicla_y_vuelve_a_x1()
+    {
+        // Envolver importa tanto como ciclar: un control que se queda en x2 deja al usuario
+        // sin manera de volver a x1 sin ir a Ajustes en el medio de una lectura.
+        Assert.Equal(ReadingSpeed.Fast, ReadingSpeed.Normal.Next());
+        Assert.Equal(ReadingSpeed.Faster, ReadingSpeed.Fast.Next());
+        Assert.Equal(ReadingSpeed.Normal, ReadingSpeed.Faster.Next());
+    }
+
+    [Fact]
+    public void Una_velocidad_desconocida_en_el_config_no_rompe_nada()
+    {
+        Assert.Equal(ReadingSpeed.Normal, ReadingSpeed.Resolve("x7"));
+        Assert.Equal(ReadingSpeed.Normal, ReadingSpeed.Resolve(null));
+        Assert.Equal(ReadingSpeed.Faster, ReadingSpeed.Resolve("x2"));
+    }
+
+    /// <summary>
+    /// El pipeline dispara y se olvida, así que los controles de transporte se prueban
+    /// contra un estado que aparece cuando aparece. Sondear es feo pero es honesto: la
+    /// alternativa es un Delay fijo, que en una máquina cargada falla sin decir por qué.
+    /// </summary>
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+
+        while (!condition())
+        {
+            if (DateTime.UtcNow > deadline) throw new TimeoutException("La condición nunca se cumplió.");
+
+            await Task.Delay(5);
+        }
+    }
+
     private sealed class World
     {
         public FakeSynthesizer Synthesizer { get; } = new();
@@ -330,6 +532,29 @@ public class ReadingPipelineTests
 
         /// <summary>Se queda sonando hasta que lo cancelen, para poder probar el corte.</summary>
         public bool Block { get; set; }
+
+        /// <summary>
+        /// La velocidad, tal cual la deja el pipeline. El adaptador de verdad la aplica
+        /// con SoundTouch; acá alcanza con registrar que llegó, que es lo único que el
+        /// pipeline promete.
+        /// </summary>
+        public double Speed { get; set; } = 1.0;
+
+        public bool IsPaused { get; private set; }
+
+        /// <summary>Cuántas veces se pidió seguir, para distinguir un Resume real de ninguno.</summary>
+        public int Resumes { get; private set; }
+
+        public void Pause() { lock (gate) IsPaused = true; }
+
+        public void Resume()
+        {
+            lock (gate)
+            {
+                IsPaused = false;
+                Resumes++;
+            }
+        }
 
         public async Task PlayAsync(string wavPath, CancellationToken cancellationToken = default)
         {

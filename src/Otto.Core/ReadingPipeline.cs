@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Otto.Core;
 
-public enum ReadingState { Idle, Reading }
+public enum ReadingState { Idle, Reading, Paused }
 
 /// <summary>
 /// The other direction of the product: Otto reading a screen back to somebody.
@@ -30,6 +30,33 @@ public sealed class ReadingPipeline : IDisposable
     private readonly ILogger<ReadingPipeline> log;
 
     private CancellationTokenSource? reading;
+
+    /// <summary>
+    /// Cancels the fragment being played without ending the reading — how
+    /// <see cref="Repeat"/> gets the current sentence to start over.
+    ///
+    /// <para>
+    /// Linked to <see cref="reading"/> rather than independent of it, so a Stop still
+    /// reaches the player through this one too. The two are told apart at the catch site
+    /// by asking which token actually fired: a fragment cancelled while the reading's own
+    /// token is untouched was cancelled by Repeat, and is not an ending.
+    /// </para>
+    /// </summary>
+    private CancellationTokenSource? fragment;
+
+    /// <summary>
+    /// Set by <see cref="Repeat"/> and consumed by the fragment loop.
+    ///
+    /// <para>
+    /// A flag rather than an argument because the request arrives from a different thread
+    /// entirely — a click on the controls card, or the hotkey message pump — while the loop
+    /// is parked inside <c>PlayAsync</c>.
+    /// </para>
+    /// </summary>
+    private volatile bool repeat;
+
+    private ReadingSpeed speed = ReadingSpeed.Normal;
+
     private int busy;
 
     public ReadingPipeline(
@@ -49,6 +76,29 @@ public sealed class ReadingPipeline : IDisposable
     public ReadingState State { get; private set; } = ReadingState.Idle;
 
     public event Action<ReadingState>? StateChanged;
+
+    /// <summary>
+    /// How fast the reading plays. Takes effect on the sentence already sounding — see
+    /// <see cref="IAudioPlayer.Speed"/> for the obligation that makes that true, and
+    /// <see cref="ReadingSpeed"/> for why this is not Piper's own speech-rate parameter.
+    /// </summary>
+    public ReadingSpeed Speed
+    {
+        get => speed;
+
+        set
+        {
+            if (speed == value) return;
+
+            speed = value;
+            player.Speed = value.Factor;
+
+            SpeedChanged?.Invoke(value);
+        }
+    }
+
+    /// <summary>Raised when <see cref="Speed"/> moves, so the controls can say what it is now.</summary>
+    public event Action<ReadingSpeed>? SpeedChanged;
 
     /// <summary>
     /// Nothing was selected and the clipboard was empty too.
@@ -102,6 +152,75 @@ public sealed class ReadingPipeline : IDisposable
 
     public void Stop() => reading?.Cancel();
 
+    /// <summary>
+    /// Holds the reading where it is.
+    ///
+    /// <para>
+    /// Deliberately not a third way to stop. <see cref="Toggle"/> and <see cref="Read"/>
+    /// both still stop a paused reading, because this class's one rule — anything that
+    /// would start a reading stops the one in progress — has to keep meaning the same
+    /// thing whether or not the user has paused. Pause is the only control that does
+    /// something a second press of the hotkey does not.
+    /// </para>
+    /// </summary>
+    public void Pause()
+    {
+        if (State != ReadingState.Reading) return;
+
+        player.Pause();
+        Transition(ReadingState.Paused);
+    }
+
+    /// <summary>Carries on from where <see cref="Pause"/> left off.</summary>
+    public void Resume()
+    {
+        if (State != ReadingState.Paused) return;
+
+        player.Resume();
+        Transition(ReadingState.Reading);
+    }
+
+    /// <summary>What the card's one pause button does, so it never has to ask the state itself.</summary>
+    public void TogglePause()
+    {
+        if (State == ReadingState.Paused) Resume();
+        else Pause();
+    }
+
+    /// <summary>
+    /// Says the current sentence again from its start.
+    ///
+    /// <para>
+    /// The sentence, not the whole reading, and not a jump backwards through the text.
+    /// This is the control somebody reaches for when a phrase went past them while they
+    /// were looking at something else, and the unit they missed is the one they just
+    /// heard — restarting the document would punish that with everything they had already
+    /// followed.
+    /// </para>
+    /// <para>
+    /// Free to implement because the audio is still there: fragments are rendered into a
+    /// temporary folder that only gets deleted when the reading ends, so repeating is a
+    /// second <c>PlayAsync</c> over a file already on disk rather than a second trip
+    /// through Piper.
+    /// </para>
+    /// <para>
+    /// Repeating out of a pause plays. The user asked to hear it again, and a repeat that
+    /// silently re-armed a paused fragment would look like a dead button.
+    /// </para>
+    /// </summary>
+    public void Repeat()
+    {
+        if (State == ReadingState.Idle) return;
+
+        repeat = true;
+
+        player.Resume();
+        Transition(ReadingState.Reading);
+
+        // Last, so the loop that wakes up on this cancellation already sees the flag.
+        fragment?.Cancel();
+    }
+
     private void Begin(string? text)
     {
         // The guard is taken synchronously, before anything awaits, so a second press
@@ -112,6 +231,13 @@ public sealed class ReadingPipeline : IDisposable
             Stop();
             return;
         }
+
+        // A reading stopped while paused leaves the player holding, and IAudioPlayer keeps
+        // that intention across fragments on purpose. Cleared here rather than in Stop, so
+        // that stopping never has to resume a device it is about to tear down — which
+        // would be an audible blip on every stop — while the next reading still cannot be
+        // born silent.
+        player.Resume();
 
         var cancellation = new CancellationTokenSource();
 
@@ -217,7 +343,7 @@ public sealed class ReadingPipeline : IDisposable
                     ? RenderAsync(chunks[index + 1], folder.FullName, index + 1, cancellationToken)
                     : null;
 
-                await player.PlayAsync(current.Path, cancellationToken);
+                await PlayFragmentAsync(current.Path, cancellationToken);
             }
 
             log.LogInformation("Read {Chars} characters in {Chunks} fragments in {Seconds:F1} s",
@@ -227,6 +353,48 @@ public sealed class ReadingPipeline : IDisposable
         {
             await SettleAsync(next);
             Discard(folder);
+        }
+    }
+
+    /// <summary>
+    /// Plays one fragment, and plays it again for as long as <see cref="Repeat"/> keeps
+    /// asking.
+    ///
+    /// <para>
+    /// The linked token is what separates the two ways a fragment can end. A repeat
+    /// cancels only this scope, so the reading's own token is still untouched and the
+    /// exception is swallowed here; a stop cancels the reading's token, the filter does
+    /// not match, and the exception carries on up to <see cref="RunAsync"/> where it
+    /// belongs. Catching both would turn every stop into a silent advance to the next
+    /// sentence.
+    /// </para>
+    /// </summary>
+    private async Task PlayFragmentAsync(string path, CancellationToken reading)
+    {
+        while (true)
+        {
+            using var scope = CancellationTokenSource.CreateLinkedTokenSource(reading);
+
+            // Cleared before the play, never after: a Repeat arriving in the moment
+            // between the player returning and this loop reading the flag has to be
+            // honoured, not swallowed by a reset that ran later.
+            repeat = false;
+            fragment = scope;
+
+            try
+            {
+                await player.PlayAsync(path, scope.Token);
+            }
+            catch (OperationCanceledException) when (!reading.IsCancellationRequested)
+            {
+                // Repeat cancelled this fragment. Not an ending, and not worth a log line.
+            }
+            finally
+            {
+                fragment = null;
+            }
+
+            if (!repeat || reading.IsCancellationRequested) return;
         }
     }
 
