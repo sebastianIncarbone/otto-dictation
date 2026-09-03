@@ -90,7 +90,7 @@ Todos los números y cómo se obtuvieron: [hito 0](docs/hito-0-resultados.md),
 ## Instalación
 
 Bajá **`Otto-Setup.exe`** de [la última release](https://github.com/sebastianIncarbone/otto-dictation/releases/latest)
-(~50 MB) y ejecutalo.
+(~75 MB) y ejecutalo.
 
 No pide administrador: Otto se instala para tu usuario, en
 `%LOCALAPPDATA%\Programs\Otto`. El instalador te deja elegir si querés el acceso
@@ -111,7 +111,7 @@ dispare una transferencia que no pediste es justo lo que Otto evita.
 <details>
 <summary><b>¿Preferís no instalar nada?</b></summary>
 
-`Otto-windows-x64.zip` (~130 MB) es la misma aplicación en versión portable:
+`Otto-windows-x64.zip` (~127 MB) es la misma aplicación en versión portable:
 descomprimila donde quieras y ejecutá `Otto.App.exe`. Sirve para un pendrive o para
 una máquina donde no podés instalar programas.
 

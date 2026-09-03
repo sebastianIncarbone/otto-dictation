@@ -86,7 +86,7 @@ Every number and how it was obtained: [milestone 0](docs/hito-0-resultados.md),
 ## Installation
 
 Download **`Otto-Setup.exe`** from [the latest release](https://github.com/sebastianIncarbone/otto-dictation/releases/latest)
-(~50 MB) and run it.
+(~75 MB) and run it.
 
 It does not ask for administrator: Otto installs per user, into
 `%LOCALAPPDATA%\Programs\Otto`. The installer lets you choose whether you want the
@@ -107,7 +107,7 @@ checkbox should start a transfer you did not ask for.
 <details>
 <summary><b>Prefer not to install anything?</b></summary>
 
-`Otto-windows-x64.zip` (~130 MB) is the same application, portable: unzip it wherever
+`Otto-windows-x64.zip` (~127 MB) is the same application, portable: unzip it wherever
 you like and run `Otto.App.exe`. Useful for a USB stick, or a machine where you
 cannot install software.
 
