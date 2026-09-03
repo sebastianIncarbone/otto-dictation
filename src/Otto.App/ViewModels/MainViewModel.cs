@@ -1285,6 +1285,23 @@ public sealed partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Asks <c>App</c> to put the character back in its corner.
+    ///
+    /// <para>
+    /// A command rather than a field on the settings form, because it is an action and not
+    /// a preference: there is nothing to choose and nothing to save afterwards. It also
+    /// deliberately does not wait for Guardar — somebody who has lost the character behind
+    /// a window wants it back now, and making them find the save button first is asking
+    /// them to trust that the thing they cannot see moved.
+    /// </para>
+    /// </summary>
+    [RelayCommand]
+    private void ResetCharacterPosition() => CharacterPositionResetRequested?.Invoke();
+
+    /// <inheritdoc cref="ResetCharacterPositionCommand"/>
+    public event Action? CharacterPositionResetRequested;
+
+    /// <summary>
     /// Reflects a change made somewhere else — the tray menu — without saving or
     /// raising anything back, which would bounce between the two owners forever.
     /// </summary>

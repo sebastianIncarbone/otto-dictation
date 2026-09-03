@@ -419,9 +419,33 @@ at the point of enforcement — read the surrounding comment before overriding o
   own `correctionEnabled` parameter — both read from the same `ProvisioningOptions` fields, so
   the two stay in agreement by construction rather than by convention. On a GPU machine with
   correction enabled, first run grows from ~1,6 GB to ~3,6 GB.
-- **The overlay character window must never take focus and must stay click-through.**
-  Stealing focus right before injection sends the dictation into Otto instead of the user's
-  document.
+- **The overlay character window must never take focus. It is no longer click-through, and
+  that half was traded away deliberately.** Never taking focus is the load-bearing half:
+  stealing focus right before injection sends the dictation into Otto instead of the user's
+  document, and `WS_EX_NOACTIVATE` is what prevents it. `WS_EX_TRANSPARENT` is what is
+  gone, because a window clicks pass through is a window nobody can grab, and the
+  character is draggable now. The cost is real and was accepted rather than hidden: Otto
+  eats the clicks inside his own square. The compensation is that the square can be moved
+  — which is the feature — and that "Punto mínimo" is 64×24. `CharacterWindow` therefore
+  uses `IOverlayStyler.MakeNonActivating`, the same one the reading controls use, and no
+  longer sets `IsHitTestVisible="False"`. Rejected alternative: clipping the window to
+  Otto's silhouette with `SetWindowRgn` keeps both halves, but means deriving a region
+  from each pose's alpha and recomputing it on every swap — a lot of work to protect a
+  square the user can now simply move.
+- **Where the character opens is a pure function, and the case it exists for cannot be
+  reproduced by hand.** `OverlayPlacement.Resolve` takes the stored position, the overlay
+  size and every screen's working area, and answers with the stored spot or the
+  bottom-right corner. The case it protects is a position saved on a monitor that has
+  since been unplugged: Otto would open at coordinates on no screen at all, invisible and
+  impossible to drag back, with the setting to fix it out of reach. "Reachable" is
+  measured per axis and needs `MinimumVisible` (24 px) on both, because a 200×2 strip has
+  plenty of overlapping pixels and nothing anyone can aim at. It deliberately does not
+  nudge a nearly-off-screen position back inside — that would leave Otto somewhere the
+  user never chose, which is worse than the corner they started from. `Settings.CharacterX`
+  and `CharacterY` are `int?` because null is what "never moved" has to mean: a 0,0 default
+  is a real position, top-left, and every fresh install would open there. `App` is the only
+  writer, and amends rather than rebuilds, so an unrelated Guardar cannot send the
+  character home.
 - **Program files and user data are sibling directories, never nested.** The installer owns
   `%LOCALAPPDATA%\Programs\Otto`; the data lives in `%LOCALAPPDATA%\Otto` and
   `%APPDATA%\Otto`. Nest them and `Uninstaller.Run()` — which deletes the data directories

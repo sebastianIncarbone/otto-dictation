@@ -123,6 +123,29 @@ public sealed record Settings
     /// </summary>
     public string ReadingSpeed { get; init; } = Otto.Core.ReadingSpeed.Normal.Id;
 
+    /// <summary>
+    /// Where the user dragged the character to, in physical screen pixels. Null while it
+    /// still lives in the corner it opens in.
+    ///
+    /// <para>
+    /// Two nullable ints rather than a point type, for the same reason the hotkey is stored
+    /// as modifiers plus a virtual key: this record is the shape of <c>config.json</c>, and
+    /// a file the user can open and edit should not need an Avalonia type to make sense of.
+    /// Null is what "never moved" has to mean — a 0,0 default would be a real position, in
+    /// the top-left corner, and every fresh install would open there instead of where the
+    /// design puts it.
+    /// </para>
+    /// <para>
+    /// A position on a monitor that is no longer connected is not corrected here. It is
+    /// recovered at open time by <c>OverlayPlacement.Resolve</c>, which is where the screen
+    /// list actually exists.
+    /// </para>
+    /// </summary>
+    public int? CharacterX { get; init; }
+
+    /// <inheritdoc cref="CharacterX"/>
+    public int? CharacterY { get; init; }
+
     /// <summary>True when no settings file existed yet, so the window can introduce itself.</summary>
     [JsonIgnore] public bool IsFirstRun { get; init; }
 

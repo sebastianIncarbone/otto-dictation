@@ -537,6 +537,7 @@ public partial class App : Application
             // Same shape once more, one feature over. SaveSettings already wrote both to
             // disk, so neither handler persists anything: they only tell the live objects
             // what the user just chose.
+            view.CharacterPositionResetRequested += ReturnCharacterToCorner;
             view.ReadAloudChanged += SetReadingEnabled;
             view.ReadingHotkeyChanged += SetReadingHotkey;
             view.ReadingVoiceChanged += (voice, voicing) =>
@@ -693,7 +694,14 @@ public partial class App : Application
             {
                 if (character is null)
                 {
-                    character = new CharacterWindow(services.GetRequiredService<IOverlayStyler>(), appearance);
+                    var saved = services.GetRequiredService<Settings>();
+
+                    character = new CharacterWindow(
+                        services.GetRequiredService<IOverlayStyler>(),
+                        appearance,
+                        saved.CharacterX is { } x && saved.CharacterY is { } y ? new PixelPoint(x, y) : null);
+
+                    character.Moved += RememberCharacterPosition;
                     character.Follow(services.GetRequiredService<DictationPipeline>());
                     character.FollowReading(services.GetRequiredService<ReadingPipeline>());
                 }
@@ -1057,6 +1065,55 @@ public partial class App : Application
         // height is not known until it has been laid out, and the second and later
         // showings never go through OnOpened at all.
         readingControls.MoveIntoPlace();
+    }
+
+    /// <summary>
+    /// Writes down where the character was dragged to, and keeps the reading controls with
+    /// it.
+    ///
+    /// <para>
+    /// Amended, never rebuilt — this writer knows about two fields and the settings window
+    /// knows about the rest, which is the rule that stopped a save from silently resetting
+    /// the hotkey binding.
+    /// </para>
+    /// <para>
+    /// The card is moved rather than left where it was because it is anchored above the
+    /// character: it reads <c>Anchor.Position</c> when it is shown, and a drag that happens
+    /// while Otto is mid-sentence would otherwise leave the transport floating over the
+    /// corner he just left.
+    /// </para>
+    /// </summary>
+    private void RememberCharacterPosition(PixelPoint where)
+    {
+        var store = services.GetRequiredService<SettingsStore>();
+
+        store.Save(store.Load() with { CharacterX = where.X, CharacterY = where.Y });
+
+        if (readingControls is { IsVisible: true }) readingControls.MoveIntoPlace();
+    }
+
+    /// <summary>
+    /// Sends the character back to its corner, from Ajustes.
+    ///
+    /// <para>
+    /// The safety valve for a drag the user regrets, or one that put Otto behind something
+    /// permanent. <c>OverlayPlacement</c> already recovers a position whose screen has gone
+    /// away; this covers the cases that are technically on screen and still wrong.
+    /// </para>
+    /// <para>
+    /// Clears the stored position even when the overlay is switched off, so turning it back
+    /// on does not restore the spot the user just asked to forget.
+    /// </para>
+    /// </summary>
+    private void ReturnCharacterToCorner()
+    {
+        var store = services.GetRequiredService<SettingsStore>();
+
+        store.Save(store.Load() with { CharacterX = null, CharacterY = null });
+
+        character?.ReturnToCorner();
+
+        if (readingControls is { IsVisible: true }) readingControls.MoveIntoPlace();
     }
 
     private void StartReading(Settings settings)

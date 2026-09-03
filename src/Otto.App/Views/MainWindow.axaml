@@ -394,6 +394,23 @@
             <RadioButton GroupName="Apariencia" Content="Punto mínimo"
                          IsChecked="{Binding IsMinimalAppearance}" />
           </StackPanel>
+
+          <!-- La pista tiene que estar escrita porque no hay nada que la sugiera: el
+               personaje no tiene borde, ni asa, ni cambia el cursor. Antes los clicks lo
+               atravesaban, así que nadie iba a probar de arrastrarlo por las dudas.
+
+               Y el botón es el salvavidas del caso que el arrastre puede dejar sin salida.
+               OverlayPlacement ya recupera solo una posición guardada en un monitor que se
+               desconectó; esto cubre los otros: quedó detrás de algo, o simplemente en un
+               lugar del que uno se arrepiente. No espera al Guardar a propósito — quien
+               perdió de vista al personaje lo quiere de vuelta ahora, no después de
+               confiar en que algo que no ve se movió. -->
+          <TextBlock Text="Arrastralo con el mouse para ponerlo donde quieras. Mientras esté en pantalla se queda con los clicks que caigan encima suyo."
+                     FontSize="11" Opacity="0.6" TextWrapping="Wrap" Margin="0,4,0,0" />
+
+          <Button Content="Volver el personaje a su rincón" Classes="ghost"
+                  HorizontalAlignment="Left"
+                  Command="{Binding ResetCharacterPositionCommand}" />
         </StackPanel>
 
         <!-- Apagado de fábrica: Otto promete funcionar sin internet, así que la

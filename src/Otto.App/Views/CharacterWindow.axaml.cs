@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using Otto.Core;
@@ -50,10 +51,116 @@ public partial class CharacterWindow : Window
     // detached, and leaves a timer running for the life of the process.
     public CharacterWindow() => InitializeComponent();
 
-    public CharacterWindow(IOverlayStyler styler, CharacterAppearance appearance) : this()
+    public CharacterWindow(IOverlayStyler styler, CharacterAppearance appearance, PixelPoint? position = null) : this()
     {
         this.styler = styler;
+
+        stored = position;
+
         SetAppearance(appearance);
+    }
+
+    /// <summary>
+    /// Where the user dragged the character to, or null while it still lives in the corner.
+    /// </summary>
+    private PixelPoint? stored;
+
+    /// <summary>Where the pointer grabbed the window, in the window's own coordinates.</summary>
+    private Point? grabbedAt;
+
+    /// <summary>
+    /// Whether the pointer actually travelled while held.
+    ///
+    /// <para>
+    /// A press and release without movement is a click on a decoration, not a drag, and
+    /// firing <see cref="Moved"/> for it would write a settings file on every idle poke at
+    /// the character.
+    /// </para>
+    /// </summary>
+    private bool travelled;
+
+    /// <summary>
+    /// Raised when a drag finishes, so somebody else can persist where it landed. The
+    /// window deliberately does not save anything itself — <c>App</c> owns every writer of
+    /// <c>config.json</c>, and a second one is how the character switch nearly became an
+    /// infinite bounce between its two owners.
+    /// </summary>
+    public event Action<PixelPoint>? Moved;
+
+    /// <summary>
+    /// Puts the character back in the corner and forgets the stored position.
+    ///
+    /// <para>
+    /// The safety valve for a drag that went somewhere unreachable. <see cref="OverlayPlacement"/>
+    /// already recovers the case where the screen is gone, but not the one where the
+    /// character is technically on screen and behind something, or simply somewhere the
+    /// user regrets.
+    /// </para>
+    /// </summary>
+    public void ReturnToCorner()
+    {
+        stored = null;
+
+        MoveIntoPlace();
+    }
+
+    /// <summary>
+    /// Left button only, and capture the pointer so a fast drag that outruns the window
+    /// does not drop the grab the moment the cursor leaves it.
+    /// </summary>
+    protected override void OnPointerPressed(PointerPressedEventArgs e)
+    {
+        base.OnPointerPressed(e);
+
+        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+
+        grabbedAt = e.GetPosition(this);
+        travelled = false;
+
+        e.Pointer.Capture(this);
+    }
+
+    protected override void OnPointerMoved(PointerEventArgs e)
+    {
+        base.OnPointerMoved(e);
+
+        if (grabbedAt is not { } grab) return;
+
+        var now = e.GetPosition(this);
+        var delta = now - grab;
+
+        // Measured against the grab point inside the window rather than against the screen,
+        // so the character keeps the same spot under the cursor as it moves instead of
+        // jumping to centre itself on the pointer.
+        //
+        // Scaled because the two sides speak different units: pointer positions are logical
+        // pixels and Position is physical ones. On a 150% display, skipping this makes the
+        // character travel two thirds as far as the hand does, which reads as lag.
+        var scaling = RenderScaling;
+
+        var moved = new PixelPoint(
+            Position.X + (int)Math.Round(delta.X * scaling),
+            Position.Y + (int)Math.Round(delta.Y * scaling));
+
+        if (moved == Position) return;
+
+        Position = moved;
+        stored = moved;
+        travelled = true;
+    }
+
+    protected override void OnPointerReleased(PointerReleasedEventArgs e)
+    {
+        base.OnPointerReleased(e);
+
+        e.Pointer.Capture(null);
+
+        var landed = grabbedAt is not null && travelled;
+
+        grabbedAt = null;
+        travelled = false;
+
+        if (landed) Moved?.Invoke(Position);
     }
 
     /// <summary>
@@ -112,9 +219,12 @@ public partial class CharacterWindow : Window
         }
 
         // The corner is measured from the window's own size, so a swap that changed
-        // it leaves the overlay floating away from the edge until this re-runs.
+        // it leaves the overlay floating away from the edge until this re-runs. A
+        // character the user has dragged keeps that spot — MoveIntoPlace only falls back
+        // to the corner when there is nothing stored, or when what is stored has gone off
+        // every screen.
         // Only meaningful once the window is open; OnOpened covers the other case.
-        if (IsVisible) MoveToCorner();
+        if (IsVisible) MoveIntoPlace();
     }
 
     /// <summary>
@@ -224,26 +334,44 @@ public partial class CharacterWindow : Window
 
         // The handle only exists once the window is open, so the styles cannot be
         // applied any earlier.
+        //
+        // MakeNonActivating and not MakeClickThrough, and that one flag is the whole cost
+        // of being draggable. WS_EX_TRANSPARENT sends every click through to whatever is
+        // underneath, which is exactly what makes a window impossible to grab — so the
+        // character now eats the clicks inside his own square. What is kept, and what the
+        // invariant was always really about, is WS_EX_NOACTIVATE: he still never takes
+        // focus, so a dictation still lands in the user's document and not in Otto.
         if (TryGetPlatformHandle() is { } handle)
-            styler?.MakeClickThrough(handle.Handle);
+            styler?.MakeNonActivating(handle.Handle);
 
-        MoveToCorner();
+        MoveIntoPlace();
     }
 
     /// <summary>
-    /// Bottom-right, clear of the taskbar. Out of the way of what people read and
-    /// type, and next to where the tray icon already is.
+    /// Where the user left the character, or the corner when they never moved it — or when
+    /// where they left it is not on any screen any more.
+    ///
+    /// <para>
+    /// The decision itself lives in <see cref="OverlayPlacement"/>, as a pure function over
+    /// rectangles, because the case worth being sure about cannot be reproduced by hand: a
+    /// position saved on a monitor that has since been unplugged. See its tests.
+    /// </para>
     /// </summary>
-    private void MoveToCorner()
+    private void MoveIntoPlace()
     {
         var screen = Screens.Primary ?? Screens.All.FirstOrDefault();
         if (screen is null) return;
 
-        var area = screen.WorkingArea;
-        var margin = 24;
+        // Primary first, because that is the one OverlayPlacement measures its fallback
+        // corner from. Screens.All makes no promise about order.
+        var areas = new List<PixelRect> { screen.WorkingArea };
 
-        Position = new PixelPoint(
-            area.X + area.Width - (int)(Width * screen.Scaling) - margin,
-            area.Y + area.Height - (int)(Height * screen.Scaling) - margin);
+        foreach (var other in Screens.All)
+            if (other.WorkingArea != screen.WorkingArea)
+                areas.Add(other.WorkingArea);
+
+        var size = new PixelSize((int)(Width * screen.Scaling), (int)(Height * screen.Scaling));
+
+        Position = OverlayPlacement.Resolve(stored, size, areas);
     }
 }

@@ -218,6 +218,34 @@ public class MainViewModelReadingHotkeyTests
     }
 
     [Fact]
+    public void Guardar_no_se_lleva_puesta_la_posicion_del_personaje()
+    {
+        // La regla de "los ajustes se enmienda, nunca se reconstruyen", aplicada al campo
+        // nuevo. La posición la escribe App cuando terminás de arrastrar; esta ventana no
+        // sabe que existe, y justamente por eso un ApplyTo que reconstruyera el record la
+        // borraría en el próximo Guardar de cualquier otra cosa — el personaje volvería solo
+        // al rincón cada vez que tocaras el idioma.
+        var view = Build(new Settings { CharacterX = 300, CharacterY = 200 });
+
+        var saved = view.ApplyTo(new Settings { CharacterX = 300, CharacterY = 200 });
+
+        Assert.Equal(300, saved.CharacterX);
+        Assert.Equal(200, saved.CharacterY);
+    }
+
+    [Fact]
+    public void Nunca_haberlo_movido_no_es_la_esquina_de_arriba_a_la_izquierda()
+    {
+        // Null y no 0,0: cero es una posición real — arriba a la izquierda — y con un
+        // default no nulo cada instalación nueva abriría ahí en vez de donde el diseño lo
+        // pone.
+        var recien = new Settings();
+
+        Assert.Null(recien.CharacterX);
+        Assert.Null(recien.CharacterY);
+    }
+
+    [Fact]
     public void Sin_instalador_de_voces_no_se_promete_nada_sobre_la_descarga()
     {
         // Con nada por donde instalar no hay respuesta honesta, y adivinar "no está
