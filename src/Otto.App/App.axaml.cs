@@ -18,6 +18,19 @@ public partial class App : Application
     private TrayIcon? tray;
     private MainWindow? window;
     private CharacterWindow? character;
+
+    /// <summary>
+    /// What the last reading had to say for itself, held until something replaces it.
+    ///
+    /// <para>
+    /// Needed because the tooltip has two writers racing on one string. A reading that
+    /// finds nothing to read raises its event and then immediately transitions back to
+    /// Idle, and both land on the UI thread in that order — so a notice written directly
+    /// would be overwritten by the Idle handler microseconds later and never be seen. The
+    /// Idle handler reads this instead of assuming it has nothing to say.
+    /// </para>
+    /// </summary>
+    private string? readingNotice;
     private NativeMenuItem? characterItem;
     private NativeMenuItem? correctionItem;
 
@@ -679,6 +692,7 @@ public partial class App : Application
                 {
                     character = new CharacterWindow(services.GetRequiredService<IOverlayStyler>(), appearance);
                     character.Follow(services.GetRequiredService<DictationPipeline>());
+                    character.FollowReading(services.GetRequiredService<ReadingPipeline>());
                 }
 
                 character.Show();
@@ -871,6 +885,7 @@ public partial class App : Application
 
         await pipeline.StartAsync(settings.ToBinding());
 
+        WireReadingFeedback();
         StartReading(settings);
 
         // StartAsync only awaits the hotkey registration — the correction
@@ -905,6 +920,70 @@ public partial class App : Application
     /// starting, and it must certainly not take the tray icon down with it.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// Gives a reading somewhere to say what happened.
+    ///
+    /// <para>
+    /// <c>ReadingPipeline</c> has published three things since it was written — its state,
+    /// "there was nothing selected", and "there is no voice installed" — and nothing was
+    /// listening to any of them. Pressing the key with no voice downloaded wrote a log
+    /// line and did nothing else at all: no icon, no tooltip, no window. "Everything
+    /// optional degrades to nothing" is about the feature stopping; it was never about the
+    /// feature going silent. The user still has to be able to tell "Otto is broken" from
+    /// "I never downloaded the voice", which is the exact distinction
+    /// <c>NothingToRead</c> and <c>Unavailable</c> were split apart to make.
+    /// </para>
+    /// <para>
+    /// The tray is the surface that is always there — the character overlay is richer, but
+    /// the user may have switched it off, and this feedback cannot be the thing that
+    /// depends on a decorative setting.
+    /// </para>
+    /// <para>
+    /// Subscribed once at startup regardless of <see cref="Settings.ReadAloud"/>: these are
+    /// handlers on an object that simply never fires them while reading is off, and wiring
+    /// them from <see cref="SetReadingEnabled"/> would add a fresh subscription on every
+    /// toggle.
+    /// </para>
+    /// </summary>
+    private void WireReadingFeedback()
+    {
+        var reading = services.GetRequiredService<ReadingPipeline>();
+        var pipeline = services.GetRequiredService<DictationPipeline>();
+
+        reading.StateChanged += state => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            if (tray is null) return;
+
+            if (state == ReadingState.Reading)
+            {
+                readingNotice = null;
+                tray.ToolTipText = "Otto — leyendo";
+                return;
+            }
+
+            // Handed back to the dictation state rather than to a string remembered when
+            // the reading started: a dictation can begin and end while Otto is talking,
+            // and restoring the old text would put a stale "Escuchando…" on an idle Otto.
+            tray.ToolTipText = readingNotice ?? StateShapes.Tooltip(pipeline.State);
+        });
+
+        reading.NothingToRead += () => Avalonia.Threading.Dispatcher.UIThread.Post(
+            () => readingNotice = "Otto — no había nada seleccionado");
+
+        reading.Unavailable += () => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            readingNotice = "Otto — falta descargar la voz";
+
+            // The only one of the three with a fix behind it, so it goes and shows the
+            // user the fix instead of hoping somebody hovers over a tray icon. Taking
+            // focus is safe here in a way it never is for the overlay: this is the answer
+            // to a key the user just pressed, not something happening beside an injection.
+            ShowWindow();
+
+            services.GetRequiredService<MainViewModel>().IsSettingsOpen = true;
+        });
+    }
+
     private void StartReading(Settings settings)
     {
         if (!settings.ReadAloud) return;

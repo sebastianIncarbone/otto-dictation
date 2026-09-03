@@ -142,6 +142,37 @@ public partial class CharacterWindow : Window
     }
 
     /// <summary>
+    /// The reading's two dead ends, given a face.
+    ///
+    /// <para>
+    /// Reactions only, and no state — deliberately. <see cref="Apply"/> takes a
+    /// <see cref="DictationState"/>, and a reading is not one of those: Otto is Idle for
+    /// dictation the whole time he is talking. Inventing a state here would mean the
+    /// overlay claiming a dictation is happening whenever a reading is.
+    /// </para>
+    /// <para>
+    /// Two poses because the pipeline is careful to raise two events, and collapsing them
+    /// would throw that away: "you selected nothing" and "there is no voice on this
+    /// machine" need different answers from the user, so they get different faces.
+    /// Startled rather than Annoyed for the missing voice — Otto was asked for something
+    /// he does not have, which is not the same as being asked for nothing.
+    /// </para>
+    /// <para>
+    /// Both are the character's alone, exactly as <c>HeardNothing</c> already is: the ring
+    /// and the glyph have nothing to say them with, and that is most of what being a
+    /// quieter overlay means.
+    /// </para>
+    /// </summary>
+    public void FollowReading(ReadingPipeline reading)
+    {
+        reading.NothingToRead += () =>
+            Dispatcher.UIThread.Post(() => character?.React(OttoPose.Annoyed, 1.8));
+
+        reading.Unavailable += () =>
+            Dispatcher.UIThread.Post(() => character?.React(OttoPose.Startled, 1.8));
+    }
+
+    /// <summary>
     /// Remembered as well as forwarded, so an overlay built later — by a swap —
     /// opens already showing what Otto is doing rather than waiting for the next
     /// change to tell it.
