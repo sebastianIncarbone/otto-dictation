@@ -34,6 +34,13 @@ public partial class CharacterWindow : Window
     /// <summary>The last state seen, so a swap mid-dictation does not start from Idle.</summary>
     private DictationState state;
 
+    /// <summary>
+    /// The last reading seen, for the same reason <see cref="state"/> exists: swapping the
+    /// appearance while Otto is talking must not leave the new overlay standing there
+    /// silently as though nothing were happening.
+    /// </summary>
+    private ReadingState? readingState;
+
     // InitializeComponent, not AvaloniaXamlLoader.Load: only the generated version
     // wires up the x:Name fields, and this window needs a reference to Host.
     //
@@ -96,7 +103,7 @@ public partial class CharacterWindow : Window
                 break;
 
             default:
-                character = new OttoCharacter { State = state };
+                character = new OttoCharacter { State = state, Reading = readingState };
                 Host.Children.Add(character);
 
                 Width = CharacterSide;
@@ -165,6 +172,11 @@ public partial class CharacterWindow : Window
     /// </summary>
     public void FollowReading(ReadingPipeline reading)
     {
+        Apply(reading.State);
+
+        reading.StateChanged += next =>
+            Dispatcher.UIThread.Post(() => Apply(next));
+
         reading.NothingToRead += () =>
             Dispatcher.UIThread.Post(() => character?.React(OttoPose.Annoyed, 1.8));
 
@@ -184,6 +196,26 @@ public partial class CharacterWindow : Window
         if (character is not null) character.State = next;
         if (ring is not null) ring.State = next;
         if (glyph is not null) glyph.State = next;
+    }
+
+    /// <summary>
+    /// Idle becomes null rather than a third value the character has to interpret: "there
+    /// is no reading" and "there is a reading, stopped" are the same thing on screen, and
+    /// collapsing them here keeps <see cref="OttoCharacter.Reading"/> honest — it is a
+    /// reading or it is nothing.
+    ///
+    /// <para>
+    /// Only the character answers this. The ring and the glyph carry the dictation state
+    /// and nothing else, which is most of what being a quieter overlay means — someone on
+    /// "Punto mínimo" still gets the transport card and the tray, which is where the
+    /// reading feedback that does not depend on a decorative setting lives.
+    /// </para>
+    /// </summary>
+    private void Apply(ReadingState next)
+    {
+        readingState = next == ReadingState.Idle ? null : next;
+
+        if (character is not null) character.Reading = readingState;
     }
 
     protected override void OnOpened(EventArgs e)

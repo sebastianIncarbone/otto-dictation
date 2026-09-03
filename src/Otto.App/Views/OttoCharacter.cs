@@ -26,6 +26,7 @@ public enum OttoPose
     Startled,
     Pleased,
     Annoyed,
+    Speaking,
 }
 
 /// <summary>
@@ -88,6 +89,7 @@ public sealed class OttoCharacter : Control
         [OttoPose.Startled]  = ("sorprendido.png",  0.947),
         [OttoPose.Pleased]   = ("entusiasmado.png", 0.962),
         [OttoPose.Annoyed]   = ("enojado.png",      0.952),
+        [OttoPose.Speaking]  = ("hablando.png",     0.938),
     };
 
     /// <summary>Decoded on first use, then kept. Null means that pose has no artwork.</summary>
@@ -115,6 +117,26 @@ public sealed class OttoCharacter : Control
     /// <summary>When Otto last had something to do, for the lounging timer.</summary>
     private double busyAt;
 
+    /// <summary>
+    /// What the reading is doing, or null when there is no reading.
+    ///
+    /// <para>
+    /// Separate from <see cref="State"/> rather than folded into it, because the two are
+    /// genuinely orthogonal: <see cref="DictationState"/> is <c>Idle</c> for the entire
+    /// time Otto is talking, since reading is not dictating. Adding a member to that enum
+    /// would have every other consumer of it — the tray icons, the ring, the glyph, the
+    /// status line — forced to answer a question about a feature they have nothing to do
+    /// with.
+    /// </para>
+    /// <para>
+    /// Nullable rather than a bool so the pause is expressible. Otto holds the megaphone
+    /// either way, but a paused reading has him still: showing him mid-shout while nothing
+    /// is coming out is a small lie, and the whole point of the character is that what he
+    /// is doing on screen is what Otto is doing.
+    /// </para>
+    /// </summary>
+    private ReadingState? reading;
+
     public OttoCharacter()
     {
         // ~30 fps. Enough for a bob and a blink, cheap enough that a decoration
@@ -124,6 +146,20 @@ public sealed class OttoCharacter : Control
     }
 
     static OttoCharacter() => AffectsRender<OttoCharacter>(StateProperty);
+
+    /// <inheritdoc cref="reading"/>
+    public ReadingState? Reading
+    {
+        get => reading;
+
+        set
+        {
+            if (reading == value) return;
+
+            reading = value;
+            InvalidateVisual();
+        }
+    }
 
     /// <summary>
     /// Shows a pose for a moment and then lets the state take over again.
@@ -163,6 +199,16 @@ public sealed class OttoCharacter : Control
     {
         if (interjection is { } momentary && phase < interjectionUntil) return momentary;
 
+        // A reading outranks the dictation state, and it has to. Otto is Idle for dictation
+        // the whole time he is talking, so deferring to State here would have him settle
+        // into Neutral — or, after ten quiet minutes, lounge in a beanbag — while his own
+        // voice is coming out of the speakers.
+        //
+        // Below the interjection, though, not above it: "there was nothing selected" and
+        // "there is no voice installed" both fire while the reading is technically in
+        // progress, and those reactions are the only answer the user gets on screen.
+        if (reading is not null) return OttoPose.Speaking;
+
         return State switch
         {
             DictationState.Loading      => OttoPose.Waiting,
@@ -195,7 +241,10 @@ public sealed class OttoCharacter : Control
             reactedAt = phase;
         }
 
-        if (State != DictationState.Idle) busyAt = phase;
+        // A reading counts as being busy. Without this a long one would tick past the
+        // ten-minute lounge timer and Otto would flop into a beanbag the moment he stopped
+        // talking, as though nobody had asked him for anything.
+        if (State != DictationState.Idle || reading is not null) busyAt = phase;
 
         var wanted = Wanted();
 
@@ -380,6 +429,37 @@ public sealed class OttoCharacter : Control
                 // A short, stiff refusal to move.
                 breath = Math.Sin(phase * 2.2) * 0.010;
                 tilt = -0.03;
+                break;
+            }
+
+            case OttoPose.Speaking:
+            {
+                // Paused: still holding the megaphone, and completely still. The stillness
+                // is the whole message — the pose says he is in the middle of reading
+                // something, and the absence of movement says it is not coming out right
+                // now. A bob here would read as talking with the sound muted.
+                if (reading == ReadingState.Paused)
+                {
+                    breath = Math.Sin(phase * 0.8) * 0.008;
+                    tilt = -0.035;
+                    break;
+                }
+
+                // Projecting, which is something you do from the feet up. Leaning in, and
+                // the lean is a constant rather than an oscillation on purpose: a megaphone
+                // that waves around reads as somebody looking for an audience instead of
+                // addressing one.
+                tilt = -0.035;
+                lift = 1.02;
+
+                // Bob and breath share a rate here, unlike the resting pose where they are
+                // deliberately detuned. Speech has a beat and the two moving together is
+                // what makes this read as syllables rather than as breathing.
+                bob = Math.Sin(phase * 5.2) * size * 0.013;
+                breath = Math.Sin(phase * 5.2) * 0.030;
+
+                // Off the beat, so the emphasis does not land in the same place every time.
+                drift = Math.Sin(phase * 2.6 + 0.7) * size * 0.007;
                 break;
             }
 

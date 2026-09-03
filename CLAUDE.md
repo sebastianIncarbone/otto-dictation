@@ -339,6 +339,22 @@ at the point of enforcement — read the surrounding comment before overriding o
   paste into Otto instead of into what they were reading. The card is shown only while a
   reading is happening, built lazily, and hidden with `Hide()` and never `Close()` — same
   reason the character is, since closing destroys the handle the style was applied to.
+- **The character's reading state is a separate field from `DictationState`, and the enum
+  was deliberately not extended.** `OttoCharacter.Reading` is a `ReadingState?` beside
+  `State`, because the two are orthogonal: dictation is `Idle` for the entire time Otto is
+  talking. Adding a member to `DictationState` would force every other consumer — tray
+  icons, the ring, the glyph, `StateShapes`, the status line — to answer a question about a
+  feature they have nothing to do with. In `Wanted()` a reading outranks the state (or Otto
+  would settle into Neutral, or lounge after ten quiet minutes, while his own voice is
+  coming out of the speakers) but ranks *below* an interjection, since "nothing selected"
+  and "no voice installed" both fire while a reading is technically in progress and those
+  reactions are the only on-screen answer the user gets. It is nullable rather than a bool
+  so a pause is expressible: same megaphone, no movement. Only the character shows it — the
+  ring and the glyph carry dictation and nothing else, and someone on "Punto mínimo" gets
+  the transport card and the tray instead. `hablando.png` is resized to 384×384 to match the
+  rest of the set rather than shipped at its authored 1254×1254; the canvas is 144 logical
+  px. `OttoPoseArtTests` pins that every pose has art, because a missing entry is silent —
+  `Load` returns null, the null is cached, and the character simply does not draw.
 - **Pause is the only reading control that does something a second press of the hotkey does
   not.** `Toggle` and `Read` still *stop* a paused reading, because "anything that would
   start a reading stops the one in progress" has to keep meaning the same thing whether or
