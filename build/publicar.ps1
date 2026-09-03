@@ -222,6 +222,29 @@ if (-not (Test-Path $espeak)) { throw "El zip de Piper no dejo espeak-ng-data en
 $piperMb = (Get-ChildItem (Join-Path $staging 'piper') -Recurse -File | Measure-Object Length -Sum).Sum / 1MB
 Write-Host ("    + piper\ ({0:N0} MB)" -f $piperMb)
 
+# Las licencias de terceros viajan con el binario, no solo con el repositorio.
+# SoundTouch.Net es LGPL y es la unica dependencia que pide algo mas que el aviso:
+# el usuario tiene que poder reemplazar el DLL. Eso se cumple porque publicamos
+# self-contained pero NO single-file ni trimmed, asi que SoundTouch.Net.dll queda
+# como ensamblado suelto al lado del ejecutable. Si alguien prende PublishSingleFile
+# esa libertad desaparece y este archivo pasa a mentir, por eso el chequeo de abajo
+# verifica que el DLL siga estando suelto.
+Write-Host "==> Copiando los avisos de terceros"
+Copy-Item (Join-Path $repo 'THIRD-PARTY-NOTICES.md') $staging -Force
+
+$soundTouch = Join-Path $staging 'SoundTouch.Net.dll'
+
+if (-not (Test-Path $soundTouch)) {
+    throw @"
+No aparecio SoundTouch.Net.dll suelto en el staging.
+
+Es la libreria LGPL que hace el control de velocidad de la lectura, y su licencia
+exige que el usuario pueda reemplazarla. Si esto falla es porque el publish la
+empaqueto adentro del ejecutable (PublishSingleFile) o la recorto (PublishTrimmed):
+hay que revertir eso, no sacar este chequeo.
+"@
+}
+
 Write-Host "==> Comprimiendo"
 $zip = Join-Path $OutputDir 'Otto-windows-x64.zip'
 Compress-Archive -Path $staging -DestinationPath $zip -CompressionLevel Optimal

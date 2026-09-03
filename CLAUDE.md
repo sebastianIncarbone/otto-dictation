@@ -308,6 +308,59 @@ at the point of enforcement — read the surrounding comment before overriding o
   know what happens next. A failed *reading* hotkey registration is swallowed, unlike the
   dictation one which is surfaced: dictation is the product, reading is optional and obeys
   "everything optional degrades to nothing."
+- **Reading speed is a time-stretch in the player, and deliberately NOT Piper's own
+  `LengthScale`.** Piper has a speech-rate parameter and it sounds better — the model
+  decides where the extra time goes rather than a splice hunting for it — but it applies at
+  synthesis, and the pipeline renders one fragment ahead of the one playing, so a change
+  made there would reach the sentence *after next*. That is a button that appears to do
+  nothing. So `ReadingSpeed` drives `IAudioPlayer.Speed`, which `TempoSampleProvider` feeds
+  to SoundTouch's WSOLA over already-rendered audio. It is a stretch and not a resample for
+  the obvious reason: a 22 kHz voice played at 44 kHz is twice as fast *and an octave up*.
+  The upside of the split is that `PiperVoicing` and speed stay independent — one is how
+  the voice sounds, the other is how it is played back — so "Pausado" plus x2 is coherent
+  instead of two settings fighting over one number.
+- **`SoundTouch.Net` is LGPL, and that is why `publicar.ps1` refuses to package without
+  `SoundTouch.Net.dll` loose in the staging.** Otto is MIT. LGPL section 4 asks that the
+  user be able to replace the library, and Otto publishes self-contained but **not**
+  single-file and **not** trimmed, so the assembly sits beside the executable and can be
+  swapped. Turning on `PublishSingleFile` or `PublishTrimmed` would bury it and quietly end
+  that freedom — the check in `publicar.ps1` exists to fail loudly instead, and
+  `THIRD-PARTY-NOTICES.md` (copied into the install directory, not merely committed here)
+  is what states the terms. The library is managed, not a native wrapper, which is why this
+  did not also mean carrying a third binary.
+- **The reading controls are a separate window from the character, and the difference is
+  exactly one extended style.** `CharacterWindow` is scenery: `WS_EX_TRANSPARENT` plus
+  `IsHitTestVisible="False"` sends every click through to the document underneath.
+  `ReadingControlsWindow` cannot do that — a pause button clicks pass through is a pause
+  button that cannot be pressed — so `IOverlayStyler` has two methods now, and
+  `MakeNonActivating` is `MakeClickThrough` minus that one flag. What both keep is
+  `WS_EX_NOACTIVATE`, and it matters *more* here: a card that took focus when the user
+  pressed pause would leave Otto as the foreground window, and the next dictation would
+  paste into Otto instead of into what they were reading. The card is shown only while a
+  reading is happening, built lazily, and hidden with `Hide()` and never `Close()` — same
+  reason the character is, since closing destroys the handle the style was applied to.
+- **Pause is the only reading control that does something a second press of the hotkey does
+  not.** `Toggle` and `Read` still *stop* a paused reading, because "anything that would
+  start a reading stops the one in progress" has to keep meaning the same thing whether or
+  not the user paused — otherwise they have to remember what state they left it in to know
+  what the hotkey will do. Repeat replays the current *sentence*, not the document: the
+  fragment WAV is still in the temp folder until the reading ends, so it costs a second
+  `PlayAsync` rather than a second trip through Piper. The fragment carries its own linked
+  token, which is what tells a repeat apart from a stop — a repeat cancels only that scope
+  and is swallowed, a stop cancels the reading's token and propagates. Catch both and every
+  stop becomes a silent advance to the next sentence; `Cortar_no_se_confunde_con_repetir`
+  pins that. The player holds the pause as an *intention* rather than reading it off the
+  device, because between two fragments there is no device to ask and the gap between
+  sentences is exactly where somebody aiming at the button lands.
+- **Both hotkeys share one capture machine.** `MainViewModel` arms a single
+  `IsCapturingHotkey` with a `HotkeyTarget`, not one machine each: the window-level tunnel
+  handler marks every key handled while a capture is armed, so two armed editors would be
+  two of them waiting on the same key press. That machine also makes the refusal
+  `IHotkeyAvailability` cannot — Otto's *other* hotkey. The probe answers "taken" for a
+  combination Otto itself holds and the self-conflict widening forgives it, which is right
+  for the binding being edited and wrong for the other one. The reading binding takes
+  effect on Guardar rather than on the next launch, unlike dictation's, because `App`
+  already releases and re-takes it every time the reading checkbox moves.
 - **The hotkey polls for release on purpose.** `RegisterHotKey` never signals release, and
   the alternative — `WH_KEYBOARD_LL` — installs a system-wide keyboard hook that is
   structurally a keylogger and draws antivirus attention. Consequence: bindings must include

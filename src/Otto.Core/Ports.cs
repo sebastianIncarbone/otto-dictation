@@ -281,6 +281,20 @@ public sealed class NullPostProcessor : IPostProcessor
 public interface IOverlayStyler
 {
     void MakeClickThrough(IntPtr windowHandle);
+
+    /// <summary>
+    /// The same overlay treatment, minus the click-through: a window that floats over
+    /// everything and can be clicked, but still never takes focus.
+    ///
+    /// <para>
+    /// Separate from <see cref="MakeClickThrough"/> because the two differ by exactly one
+    /// flag and that flag is the difference between decoration and a control. The reading
+    /// controls have buttons, so clicks cannot pass through them — but the never-focus half
+    /// matters more here than it does for the character, not less: a card that took focus
+    /// when the user pressed pause would leave the next dictation pasting into Otto.
+    /// </para>
+    /// </summary>
+    void MakeNonActivating(IntPtr windowHandle);
 }
 
 /// <summary>

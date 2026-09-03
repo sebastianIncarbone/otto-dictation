@@ -20,7 +20,24 @@ namespace Otto.Platform.Windows;
 /// </summary>
 public sealed class OverlayStyler : IOverlayStyler
 {
-    public void MakeClickThrough(IntPtr windowHandle)
+    public void MakeClickThrough(IntPtr windowHandle) =>
+        Apply(windowHandle, Native.WS_EX_TRANSPARENT);
+
+    /// <summary>
+    /// Everything above except <c>WS_EX_TRANSPARENT</c>.
+    ///
+    /// <para>
+    /// One flag apart, and it is the flag that decides whether a window is scenery or a
+    /// control: with it, clicks land on whatever is underneath, which for a pause button
+    /// means the button can never be pressed. <c>WS_EX_NOACTIVATE</c> is what makes the
+    /// combination safe — the card can be clicked without the click moving focus, so the
+    /// document the user was reading is still the foreground window when the reading ends
+    /// and they go back to dictating into it.
+    /// </para>
+    /// </summary>
+    public void MakeNonActivating(IntPtr windowHandle) => Apply(windowHandle, 0);
+
+    private static void Apply(IntPtr windowHandle, long extra)
     {
         if (windowHandle == IntPtr.Zero) return;
 
@@ -28,9 +45,9 @@ public sealed class OverlayStyler : IOverlayStyler
 
         var updated = current
                       | Native.WS_EX_LAYERED
-                      | Native.WS_EX_TRANSPARENT
                       | Native.WS_EX_TOOLWINDOW
-                      | Native.WS_EX_NOACTIVATE;
+                      | Native.WS_EX_NOACTIVATE
+                      | extra;
 
         Native.SetWindowLongPtr(windowHandle, Native.GWL_EXSTYLE, new IntPtr(updated));
     }

@@ -19,6 +19,9 @@ public partial class App : Application
     private MainWindow? window;
     private CharacterWindow? character;
 
+    /// <summary>The transport card, built the first time a reading actually happens.</summary>
+    private ReadingControlsWindow? readingControls;
+
     /// <summary>
     /// What the last reading had to say for itself, held until something replaces it.
     ///
@@ -968,6 +971,8 @@ public partial class App : Application
         {
             if (tray is null) return;
 
+            ShowReadingControls(state != ReadingState.Idle);
+
             if (state != ReadingState.Idle)
             {
                 readingNotice = null;
@@ -996,6 +1001,48 @@ public partial class App : Application
 
             services.GetRequiredService<MainViewModel>().IsSettingsOpen = true;
         });
+    }
+
+    /// <summary>
+    /// Puts the transport on screen while a reading is happening, and takes it away when
+    /// it is not.
+    ///
+    /// <para>
+    /// Only while it is happening. A transport for audio that is not playing is three dead
+    /// buttons floating over somebody's screen, and this feature is supposed to be quiet.
+    /// </para>
+    /// <para>
+    /// Built lazily, for the reason the character overlay is lazy too: somebody who never
+    /// reads aloud never pays for a window they will not see. And hidden with
+    /// <c>Hide()</c> rather than <c>Close()</c>, for the reason the character already
+    /// documents — the never-focus style is applied to the native handle in
+    /// <c>OnOpened</c>, and closing would destroy the handle and take the style with it,
+    /// so the card would come back able to steal focus.
+    /// </para>
+    /// </summary>
+    private void ShowReadingControls(bool visible)
+    {
+        if (!visible)
+        {
+            readingControls?.Hide();
+            return;
+        }
+
+        readingControls ??= new ReadingControlsWindow(
+            services.GetRequiredService<IOverlayStyler>(),
+            services.GetRequiredService<ReadingPipeline>());
+
+        // Re-read on every reading rather than once: the character may have been switched
+        // on, switched off, or swapped for a differently sized appearance since the last
+        // one, and this card's corner is measured from it.
+        readingControls.Anchor = character;
+
+        readingControls.Show();
+
+        // Again after Show, not only in OnOpened: SizeToContent means the card's own
+        // height is not known until it has been laid out, and the second and later
+        // showings never go through OnOpened at all.
+        readingControls.MoveIntoPlace();
     }
 
     private void StartReading(Settings settings)
